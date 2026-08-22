@@ -11,7 +11,7 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },
-  "dependencies": {
+  "dependencies": {"@supabase/supabase-js": "^2.57.0",
     "@base44/sdk": "^0.8.43",
     "@base44/vite-plugin": "^1.0.30",
     "@hello-pangea/dnd": "^17.0.0",
