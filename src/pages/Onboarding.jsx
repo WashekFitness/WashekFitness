@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft, Zap, Target, Flame, Trophy, Sparkles, Dumbbell, Scale, Heart, Wind, PersonStanding, Globe } from 'lucide-react';
 import { COUNTRIES, LANGUAGES, getCountryDefaults } from '@/lib/countries';
 import { useAppSettings } from '@/lib/AppSettingsContext';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import TrainingTypeSelect from '@/components/onboarding/TrainingTypeSelect';
 import { CALISTHENICS_GOALS, WEIGHT_GOALS, buildStructurePrompt, buildMicrocyclePrompt } from '@/lib/trainingTypes';
@@ -156,158 +156,356 @@ export default function Onboarding() {
     }, 400);
   };
 
-  const handleGenerate = async () => {
-    setLoading(true);
-    setProgress(5);
-    setLoadingPhase('Saving your profile…');
-    updateSettings({ country, language, unit });
-    const heightInches = (parseInt(heightFt) || 0) * 12 + (parseInt(heightIn) || 0);
-    try {
-      const profileData = {
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        training_type: trainingType,
-        fitness_level: level || 'intermediate',
-        primary_goal: goalDescription || weightGoals.join(', '),
-        goal_timeframe: timeframe,
-        available_equipment: equipment,
-        training_requirements: requirements,
-        weight_goals: weightGoals,
-        onboarded: true,
-        age: parseInt(age) || null,
-        weight_lbs: parseFloat(weightLbs) || null,
-        height_inches: unit === 'metric' ? null : (heightInches || null),
-        height_cm: unit === 'metric' ? (parseInt(heightFt) || null) : null,
-        fitness_goals: fitnessGoals,
-        current_skills: currentSkills,
-        gender: gender,
-      };
-      await base44.auth.updateMe(profileData);
+const handleGenerate = async () => {
+  setLoading(true);
+  setProgress(5);
+  setLoadingPhase('Saving your profile…');
 
-      const promptData = {
-        gender, level, age, weightLbs, heightFt, heightIn, unit,
-        currentSkills, goalDescription, timeframe, equipment, requirements,
-        fitnessGoals, weightGoals,
-      };
+  updateSettings({ country, language, unit });
 
-      // Phase 1: Generate program structure (name, macrocycle, mesocycles)
-      runProgressTo(20);
-      setLoadingPhase('Designing your program structure…');
-      const structureResult = await base44.integrations.Core.InvokeLLM({
-        prompt: buildStructurePrompt(trainingType, promptData),
-        response_json_schema: {
-          type: "object",
-          properties: {
-            program_name: { type: "string" },
-            duration_weeks: { type: "number" },
-            macrocycle: {
+  const heightInches =
+    (parseInt(heightFt) || 0) * 12 +
+    (parseInt(heightIn) || 0);
+
+  try {
+    const {
+      data: {
+        user
+      },
+      error: userError
+    } = await supabase.auth.getUser();
+
+
+    if (userError || !user) {
+      throw new Error(
+        "No authenticated user found."
+      );
+    }
+
+
+    const profileData = {
+      id: user.id,
+
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+
+      training_type: trainingType,
+      fitness_level: level || 'intermediate',
+
+      primary_goal:
+        goalDescription ||
+        weightGoals.join(', '),
+
+      goal_timeframe:
+        timeframe,
+
+      available_equipment:
+        equipment,
+
+      training_requirements:
+        requirements,
+
+      weight_goals:
+        weightGoals,
+
+      fitness_goals:
+        fitnessGoals,
+
+      current_skills:
+        currentSkills,
+
+      age:
+        parseInt(age) || null,
+
+      gender,
+
+      weight_lbs:
+        parseFloat(weightLbs) || null,
+
+      height_inches:
+        unit === 'metric'
+          ? null
+          : (heightInches || null),
+
+      height_cm:
+        unit === 'metric'
+          ? (parseInt(heightFt) || null)
+          : null,
+
+      country,
+      language,
+      unit,
+
+      onboarded: true
+    };
+
+
+    await supabase
+      .from('profiles')
+      .upsert(profileData);
+
+
+
+    const promptData = {
+      gender,
+      level,
+      age,
+      weightLbs,
+      heightFt,
+      heightIn,
+      unit,
+
+      currentSkills,
+      goalDescription,
+      timeframe,
+
+      equipment,
+      requirements,
+
+      fitnessGoals,
+      weightGoals
+    };
+
+
+
+    // ==========================
+    // PHASE 1
+    // PROGRAM STRUCTURE
+    // ==========================
+
+    runProgressTo(25);
+
+    setLoadingPhase(
+      'Designing your program structure…'
+    );
+
+
+    const structureResponse =
+      await supabase.functions.invoke(
+        'workout-generation',
+        {
+          body: {
+            type: "structure",
+
+            prompt:
+              buildStructurePrompt(
+                trainingType,
+                promptData
+              ),
+
+            schema: {
               type: "object",
               properties: {
-                overview: { type: "string" },
-                phases: { type: "array", items: { type: "object", properties: { name: { type: "string" }, weeks: { type: "string" }, focus: { type: "string" } } } }
-              }
-            },
-            mesocycles: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  focus: { type: "string" },
-                  weeks: { type: "number" },
-                  intensity: { type: "string" },
-                  week_start: { type: "number" },
-                  week_end: { type: "number" }
+
+                program_name: {
+                  type: "string"
+                },
+
+                duration_weeks: {
+                  type: "number"
+                },
+
+                macrocycle: {
+                  type: "object"
+                },
+
+                mesocycles: {
+                  type: "array"
                 }
               }
             }
           }
-        },
-        model: "gemini_3_flash"
-      });
+        }
+      );
 
-      // Phase 2: Generate microcycles for each mesocycle (4 weeks per call)
-      const mesocycles = structureResult.mesocycles || [];
-      const allMicrocycles = [];
-      for (let i = 0; i < mesocycles.length; i++) {
-        const meso = mesocycles[i];
-        runProgressTo(20 + ((i + 1) / mesocycles.length) * 70);
-        setLoadingPhase(`Building ${meso.name}…`);
-        const microResult = await base44.integrations.Core.InvokeLLM({
-          prompt: buildMicrocyclePrompt(trainingType, promptData, i, meso),
-          response_json_schema: {
-            type: "object",
-            properties: {
-              microcycles: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    week_number: { type: "number" },
-                    mesocycle_index: { type: "number" },
-                    week_type: { type: "string" },
-                    days: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          day_name: { type: "string" },
-                          workout_type: { type: "string" },
-                          exercises: {
-                            type: "array",
-                            items: {
-                              type: "object",
-                              properties: {
-                                name: { type: "string" },
-                                sets: { type: "number" },
-                                reps: { type: "string" },
-                                rest_seconds: { type: "number" },
-                                notes: { type: "string" },
-                                activation_cue: { type: "string" }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
+
+    if (
+      structureResponse.error
+    ) {
+      throw structureResponse.error;
+    }
+
+
+    const structureResult =
+      structureResponse.data.result;
+
+
+
+    // ==========================
+    // PHASE 2
+    // MICROCYCLES
+    // ==========================
+
+
+    const mesocycles =
+      structureResult.mesocycles || [];
+
+
+    const allMicrocycles = [];
+
+
+    for (
+      let i = 0;
+      i < mesocycles.length;
+      i++
+    ) {
+
+      const meso =
+        mesocycles[i];
+
+
+      runProgressTo(
+        25 +
+        ((i + 1) /
+          mesocycles.length) *
+          65
+      );
+
+
+      setLoadingPhase(
+        `Building ${meso.name}…`
+      );
+
+
+      const microResponse =
+        await supabase.functions.invoke(
+          'workout-generation',
+          {
+            body: {
+
+              type:
+                "microcycle",
+
+              prompt:
+                buildMicrocyclePrompt(
+                  trainingType,
+                  promptData,
+                  i,
+                  meso
+                ),
+
+
+              schema: {
+                type: "object",
+
+                properties: {
+
+                  microcycles: {
+                    type: "array"
                   }
+
                 }
               }
+
             }
-          },
-          model: "gemini_3_flash"
-        });
-        allMicrocycles.push(...(microResult.microcycles || []));
+          }
+        );
+
+
+      if (
+        microResponse.error
+      ) {
+        throw microResponse.error;
       }
 
-      // Phase 3: Save program
-      clearInterval(progressTimer.current);
-      setProgress(95);
-      setLoadingPhase('Saving your program…');
 
-      await base44.entities.WorkoutProgram.create({
+      allMicrocycles.push(
+        ...(microResponse.data.result.microcycles || [])
+      );
+
+    }
+
+
+
+    // ==========================
+    // SAVE PROGRAM
+    // ==========================
+
+
+    clearInterval(
+      progressTimer.current
+    );
+
+
+    setProgress(95);
+
+    setLoadingPhase(
+      'Saving your program…'
+    );
+
+
+    await supabase
+      .from('workout_programs')
+      .insert({
+
+        user_id:
+          user.id,
+
         ...structureResult,
-        microcycles: allMicrocycles,
-        training_type: trainingType,
-        fitness_level: level || 'intermediate',
-        goal: goalDescription || weightGoals.join(', ') || fitnessGoals.join(', '),
-        current_week: 1,
-        status: 'active'
+
+        microcycles:
+          allMicrocycles,
+
+        training_type:
+          trainingType,
+
+        fitness_level:
+          level || 'intermediate',
+
+        goal:
+          goalDescription ||
+          weightGoals.join(', ') ||
+          fitnessGoals.join(', '),
+
+        current_week:
+          1,
+
+        status:
+          'active'
       });
 
-      setProgress(100);
-      setLoadingPhase('Done!');
-      queryClientInstance.invalidateQueries();
-      setTimeout(() => navigate('/', { replace: true }), 500);
-    } catch (err) {
-      console.error(err);
-      clearInterval(progressTimer.current);
-      setLoading(false);
-      setProgress(0);
-      setLoadingPhase('');
-      toast.error('Failed to generate program. Please try again.');
-    }
-  };
+
+
+    setProgress(100);
+
+    setLoadingPhase(
+      'Done!'
+    );
+
+
+    queryClientInstance.invalidateQueries();
+
+
+    setTimeout(
+      () => navigate('/', { replace: true }),
+      500
+    );
+
+
+  } catch (err) {
+
+    console.error(
+      err
+    );
+
+
+    clearInterval(
+      progressTimer.current
+    );
+
+
+    setLoading(false);
+
+    setProgress(0);
+
+    setLoadingPhase('');
+
+    toast.error(
+      'Failed to generate program. Please try again.'
+    );
+
+  }
+};
 
   // Step 3 continue condition
   const step3Valid = hasSkills
