@@ -109,11 +109,11 @@ function SearchSelect({
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
-          className={cn(
+          className={
             value
               ? 'text-foreground'
               : 'text-muted-foreground'
-          )}
+          }
         >
           {value || placeholder}
         </span>
@@ -169,7 +169,10 @@ function SearchSelect({
   );
 }
 
-function CountrySelect({ value, onChange }) {
+function CountrySelect({
+  value,
+  onChange,
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -194,11 +197,11 @@ function CountrySelect({ value, onChange }) {
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
-          className={cn(
+          className={
             selected
               ? 'text-foreground'
               : 'text-muted-foreground'
-          )}
+          }
         >
           {selected?.name || 'Select your country…'}
         </span>
@@ -255,16 +258,10 @@ function CountrySelect({ value, onChange }) {
 }
 
 function getErrorMessage(error, fallback) {
-  if (!error) {
-    return fallback;
-  }
+  if (!error) return fallback;
 
   if (typeof error === 'string') {
     return error;
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
   }
 
   if (error.message) {
@@ -272,21 +269,7 @@ function getErrorMessage(error, fallback) {
   }
 
   if (error.error) {
-    if (typeof error.error === 'string') {
-      return error.error;
-    }
-
-    if (error.error?.message) {
-      return error.error.message;
-    }
-  }
-
-  if (error.details) {
-    return String(error.details);
-  }
-
-  if (error.hint) {
-    return String(error.hint);
+    return getErrorMessage(error.error, fallback);
   }
 
   try {
@@ -297,6 +280,11 @@ function getErrorMessage(error, fallback) {
 }
 
 function normalizeFunctionResponse(response) {
+  console.log(
+    '[ONBOARDING] Normalizing Edge Function response:',
+    response
+  );
+
   if (!response) {
     throw new Error(
       'No response was returned by workout-generation.'
@@ -314,58 +302,30 @@ function normalizeFunctionResponse(response) {
 
   const data = response.data;
 
-  if (data == null) {
+  if (!data) {
     throw new Error(
-      'The workout-generation function returned no data.'
+      'The workout-generation function returned an empty response.'
     );
   }
 
   if (data.success === false) {
-    const message =
+    let message =
       data.error ||
       data.message ||
       'AI generation failed.';
 
-    throw new Error(
-      typeof message === 'string'
-        ? message
-        : getErrorMessage(
-            message,
-            'AI generation failed.'
-          )
-    );
+    if (typeof message === 'object') {
+      try {
+        message = JSON.stringify(message);
+      } catch {
+        message = 'AI generation failed.';
+      }
+    }
+
+    throw new Error(message);
   }
 
-  if (
-    data.result !== undefined &&
-    data.result !== null
-  ) {
-    return data.result;
-  }
-
-  return data;
-}
-
-function getPrimaryGoal({
-  goalDescription,
-  weightGoals,
-  fitnessGoals,
-}) {
-  const description = goalDescription.trim();
-
-  if (description) {
-    return description;
-  }
-
-  if (weightGoals.length > 0) {
-    return weightGoals.join(', ');
-  }
-
-  if (fitnessGoals.length > 0) {
-    return fitnessGoals.join(', ');
-  }
-
-  return 'General fitness';
+  return data.result ?? data;
 }
 
 export default function Onboarding() {
@@ -420,7 +380,8 @@ export default function Onboarding() {
   const [currentSkills, setCurrentSkills] =
     useState('');
 
-  const [gender, setGender] = useState('');
+  const [gender, setGender] =
+    useState('');
 
   const [weightGoals, setWeightGoals] =
     useState([]);
@@ -434,17 +395,11 @@ export default function Onboarding() {
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
-  const clearProgressTimer = () => {
-    if (progressTimer.current) {
-      clearInterval(progressTimer.current);
-      progressTimer.current = null;
-    }
-  };
-
   const handleCountryChange = (code) => {
     setCountry(code);
 
-    const defaults = getCountryDefaults(code);
+    const defaults =
+      getCountryDefaults(code);
 
     if (defaults) {
       setLanguage(defaults.language);
@@ -472,16 +427,14 @@ export default function Onboarding() {
     );
   };
 
+  /*
+   * Browser back-button handling.
+   *
+   * We only add history entries when moving forward.
+   * This avoids stacking listeners every render.
+   */
   useEffect(() => {
-    return () => {
-      clearProgressTimer();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (step === 0) {
-      return;
-    }
+    if (step === 0) return;
 
     window.history.pushState(
       { onboardingStep: step },
@@ -489,11 +442,9 @@ export default function Onboarding() {
     );
 
     const handlePopState = () => {
-      if (!loading) {
-        setStep((current) =>
-          Math.max(0, current - 1)
-        );
-      }
+      setStep((current) =>
+        Math.max(0, current - 1)
+      );
     };
 
     window.addEventListener(
@@ -507,104 +458,111 @@ export default function Onboarding() {
         handlePopState
       );
     };
-  }, [step, loading]);
+  }, [step]);
+
+  useEffect(() => {
+    return () => {
+      if (progressTimer.current) {
+        clearInterval(progressTimer.current);
+      }
+    };
+  }, []);
 
   const runProgressTo = (target) => {
-    clearProgressTimer();
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+    }
 
-    progressTimer.current = setInterval(() => {
-      setProgress((current) => {
-        if (current >= target) {
-          clearProgressTimer();
-          return target;
-        }
+    progressTimer.current =
+      setInterval(() => {
+        setProgress((current) => {
+          if (current >= target - 0.5) {
+            return current;
+          }
 
-        const difference = target - current;
+          const remaining =
+            target - current;
 
-        const increment = Math.max(
-          difference * 0.08,
-          0.2
-        );
-
-        return Math.min(
-          current + increment,
-          target
-        );
-      });
-    }, 300);
+          return Math.min(
+            current +
+              Math.max(
+                remaining * 0.04,
+                0.1
+              ),
+            target - 0.5
+          );
+        });
+      }, 400);
   };
 
-  const step3Valid = hasSkills
-    ? Boolean(
-        level &&
-          (!hasWeightGoals ||
-            weightGoals.length > 0)
-      )
-    : weightGoals.length > 0;
-
-  const step4Valid =
-    equipment.trim().length > 0 &&
-    (!hasSkills ||
-      goalDescription.trim().length >= 10);
-
-  const handleGenerate = async () => {
-    if (loading) {
-      return;
+  /*
+   * ============================================================
+   * CRITICAL GENERATION HANDLER
+   * ============================================================
+   *
+   * This deliberately starts with a console log.
+   *
+   * If you click "Build My Program" and DO NOT see:
+   *
+   *   [ONBOARDING] BUILD BUTTON / FORM SUBMISSION FIRED
+   *
+   * in the browser console, then the problem is 100% on the
+   * frontend/UI side and the code never even attempts Supabase.
+   */
+  const handleGenerate = async (event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
     }
 
     console.log(
-      '[ONBOARDING] Build My Program clicked'
+      '================================================'
+    );
+    console.log(
+      '[ONBOARDING] BUILD BUTTON / FORM SUBMISSION FIRED'
+    );
+    console.log(
+      '[ONBOARDING] Timestamp:',
+      new Date().toISOString()
+    );
+    console.log(
+      '[ONBOARDING] Current step:',
+      step
+    );
+    console.log(
+      '[ONBOARDING] Loading:',
+      loading
+    );
+    console.log(
+      '[ONBOARDING] Training type:',
+      trainingType
+    );
+    console.log(
+      '================================================'
     );
 
-    if (!trainingType) {
-      toast.error(
-        'Please select a training type.'
+    /*
+     * Never allow a second generation to start.
+     */
+    if (loading) {
+      console.warn(
+        '[ONBOARDING] Generation already running.'
       );
       return;
     }
 
-    if (!gender) {
-      toast.error(
-        'Please select your gender.'
-      );
-      setStep(2);
-      return;
-    }
-
-    if (hasSkills && !level) {
-      toast.error(
-        'Please select your training level.'
-      );
-      setStep(3);
-      return;
-    }
-
-    if (
-      hasSkills &&
-      fitnessGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one fitness goal.'
-      );
-      setStep(2);
-      return;
-    }
-
-    if (
-      hasWeightGoals &&
-      weightGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one weight-training goal.'
-      );
-      setStep(3);
-      return;
-    }
-
+    /*
+     * Validate only what is genuinely required.
+     */
     if (!equipment.trim()) {
+      console.warn(
+        '[ONBOARDING] Missing equipment.'
+      );
+
       toast.error(
         'Please enter your available equipment.'
       );
+
       return;
     }
 
@@ -612,39 +570,81 @@ export default function Onboarding() {
       hasSkills &&
       goalDescription.trim().length < 10
     ) {
+      console.warn(
+        '[ONBOARDING] Goal description is too short.'
+      );
+
       toast.error(
         'Please describe your goals in a little more detail.'
       );
+
       return;
     }
 
+    console.log(
+      '[ONBOARDING] Starting generation...'
+    );
+
     setLoading(true);
-    setProgress(3);
+    setProgress(2);
     setLoadingPhase(
       'Connecting to your AI coach…'
     );
 
     try {
-      updateSettings({
-        country,
-        language,
-        unit,
-      });
+      /*
+       * ========================================================
+       * STEP 1 — SETTINGS
+       * ========================================================
+       */
 
       console.log(
-        '[ONBOARDING] Getting authenticated user...'
+        '[ONBOARDING] Updating app settings...'
+      );
+
+      try {
+        updateSettings({
+          country,
+          language,
+          unit,
+        });
+      } catch (settingsError) {
+        console.warn(
+          '[ONBOARDING] App settings update failed, continuing:',
+          settingsError
+        );
+      }
+
+      /*
+       * ========================================================
+       * STEP 2 — AUTHENTICATION
+       * ========================================================
+       */
+
+      setLoadingPhase(
+        'Checking your account…'
+      );
+
+      console.log(
+        '[ONBOARDING] Calling supabase.auth.getUser()...'
       );
 
       const {
-        data: authData,
+        data: { user },
         error: userError,
       } = await supabase.auth.getUser();
+
+      console.log(
+        '[ONBOARDING] getUser response:',
+        {
+          userId: user?.id,
+          error: userError,
+        }
+      );
 
       if (userError) {
         throw userError;
       }
-
-      const user = authData?.user;
 
       if (!user) {
         throw new Error(
@@ -657,44 +657,69 @@ export default function Onboarding() {
         user.id
       );
 
-      let heightInches = null;
-      let heightCm = null;
+      setProgress(8);
 
-      if (unit === 'imperial') {
-        const feet = parseInt(
-          heightFt,
-          10
-        ) || 0;
+      /*
+       * ========================================================
+       * STEP 3 — NORMALIZE BODY STATS
+       * ========================================================
+       */
 
-        const inches = parseInt(
-          heightIn,
-          10
-        ) || 0;
-
-        const calculated =
-          feet * 12 + inches;
-
-        heightInches =
-          calculated > 0
-            ? calculated
-            : null;
-      } else {
-        const calculatedCm = parseFloat(
-          heightFt
-        );
-
-        heightCm =
-          Number.isFinite(calculatedCm) &&
-          calculatedCm > 0
-            ? calculatedCm
-            : null;
-      }
-
+      const parsedAge = parseInt(age, 10);
       const parsedWeight =
         parseFloat(weightLbs);
 
-      const parsedAge =
-        parseInt(age, 10);
+      let heightInches = null;
+      let heightCm = null;
+      let weightKg = null;
+
+      if (unit === 'imperial') {
+        const feet =
+          parseInt(heightFt, 10) || 0;
+
+        const inches =
+          parseInt(heightIn, 10) || 0;
+
+        const totalInches =
+          feet * 12 + inches;
+
+        heightInches =
+          totalInches > 0
+            ? totalInches
+            : null;
+
+        if (
+          Number.isFinite(parsedWeight)
+        ) {
+          weightKg =
+            parsedWeight * 0.45359237;
+        }
+      } else {
+        const cm =
+          parseFloat(heightFt);
+
+        heightCm =
+          Number.isFinite(cm) && cm > 0
+            ? cm
+            : null;
+
+        if (
+          Number.isFinite(parsedWeight)
+        ) {
+          weightKg =
+            parsedWeight * 0.45359237;
+        }
+      }
+
+      /*
+       * ========================================================
+       * STEP 4 — SAVE PROFILE
+       * ========================================================
+       */
+
+      setLoadingPhase(
+        'Saving your profile…'
+      );
 
       const profileData = {
         id: user.id,
@@ -712,11 +737,9 @@ export default function Onboarding() {
           level || 'intermediate',
 
         primary_goal:
-          getPrimaryGoal({
-            goalDescription,
-            weightGoals,
-            fitnessGoals,
-          }),
+          goalDescription.trim() ||
+          weightGoals.join(', ') ||
+          fitnessGoals.join(', '),
 
         goal_timeframe:
           timeframe.trim(),
@@ -737,8 +760,7 @@ export default function Onboarding() {
           currentSkills.trim(),
 
         age:
-          Number.isFinite(parsedAge) &&
-          parsedAge > 0
+          Number.isFinite(parsedAge)
             ? parsedAge
             : null,
 
@@ -746,9 +768,13 @@ export default function Onboarding() {
           gender || null,
 
         weight_lbs:
-          Number.isFinite(parsedWeight) &&
-          parsedWeight > 0
+          Number.isFinite(parsedWeight)
             ? parsedWeight
+            : null,
+
+        weight_kg:
+          Number.isFinite(weightKg)
+            ? weightKg
             : null,
 
         height_inches:
@@ -764,88 +790,91 @@ export default function Onboarding() {
         onboarded: true,
       };
 
-      setLoadingPhase(
-        'Saving your profile…'
+      console.log(
+        '[ONBOARDING] Profile payload:',
+        profileData
       );
 
       console.log(
-        '[ONBOARDING] Saving profile...'
+        '[ONBOARDING] Calling Supabase profiles.upsert()...'
       );
 
       const {
+        data: savedProfile,
         error: profileError,
       } = await supabase
         .from('profiles')
-        .upsert(
-          profileData,
-          {
-            onConflict: 'id',
-          }
-        );
+        .upsert(profileData)
+        .select()
+        .single();
+
+      console.log(
+        '[ONBOARDING] Profile upsert response:',
+        {
+          savedProfile,
+          profileError,
+        }
+      );
 
       if (profileError) {
-        console.error(
-          '[ONBOARDING] Profile error:',
-          profileError
-        );
-
-        throw new Error(
-          `Could not save your profile: ${getErrorMessage(
-            profileError,
-            'Unknown database error.'
-          )}`
-        );
+        throw profileError;
       }
 
       console.log(
-        '[ONBOARDING] Profile saved'
+        '[ONBOARDING] Profile saved successfully.'
       );
+
+      setProgress(15);
+
+      /*
+       * ========================================================
+       * PROMPT DATA
+       * ========================================================
+       */
 
       const promptData = {
         gender,
-        level:
-          level || 'intermediate',
-
+        level,
         age,
         weightLbs,
-
         heightFt,
         heightIn,
-
         unit,
 
         currentSkills,
+        goalDescription,
+        timeframe,
 
-        goalDescription:
-          goalDescription.trim(),
-
-        timeframe:
-          timeframe.trim(),
-
-        equipment:
-          equipment.trim(),
-
-        requirements:
-          requirements.trim(),
+        equipment,
+        requirements,
 
         fitnessGoals,
         weightGoals,
       };
 
+      console.log(
+        '[ONBOARDING] Prompt data:',
+        promptData
+      );
+
       /*
-       * PHASE 1
-       * Build the overall program structure.
+       * ========================================================
+       * PHASE 1 — PROGRAM STRUCTURE
+       * ========================================================
        */
 
-      setProgress(8);
-      runProgressTo(25);
+      runProgressTo(30);
 
       setLoadingPhase(
         'Designing your program structure…'
       );
 
       console.log(
-        '[ONBOARDING] Building structure prompt...'
+        '[ONBOARDING] ========================================'
+      );
+
+      console.log(
+        '[ONBOARDING] PREPARING STRUCTURE EDGE FUNCTION CALL'
       );
 
       const structurePrompt =
@@ -854,73 +883,88 @@ export default function Onboarding() {
           promptData
         );
 
-      if (
-        typeof structurePrompt !==
-          'string' ||
-        !structurePrompt.trim()
-      ) {
-        throw new Error(
-          'The program structure prompt could not be created.'
-        );
-      }
+      console.log(
+        '[ONBOARDING] Structure prompt created. Length:',
+        structurePrompt?.length
+      );
+
+      const structureBody = {
+        type: 'structure',
+
+        prompt:
+          structurePrompt,
+
+        schema: {
+          type: 'object',
+
+          additionalProperties: false,
+
+          properties: {
+            program_name: {
+              type: 'string',
+            },
+
+            duration_weeks: {
+              type: 'number',
+            },
+
+            macrocycle: {
+              type: 'object',
+              additionalProperties: true,
+            },
+
+            mesocycles: {
+              type: 'array',
+            },
+          },
+
+          required: [
+            'program_name',
+            'duration_weeks',
+            'macrocycle',
+            'mesocycles',
+          ],
+        },
+      };
 
       console.log(
-        '[ONBOARDING] Calling workout-generation: structure'
+        '[ONBOARDING] CALLING supabase.functions.invoke("workout-generation") NOW'
+      );
+
+      console.log(
+        '[ONBOARDING] Structure request body:',
+        structureBody
       );
 
       const structureResponse =
         await supabase.functions.invoke(
           'workout-generation',
           {
-            body: {
-              type: 'structure',
-
-              prompt:
-                structurePrompt,
-
-              schema: {
-                type: 'object',
-                additionalProperties: false,
-
-                properties: {
-                  program_name: {
-                    type: 'string',
-                  },
-
-                  duration_weeks: {
-                    type: 'number',
-                  },
-
-                  macrocycle: {
-                    type: 'object',
-                    additionalProperties: true,
-                  },
-
-                  mesocycles: {
-                    type: 'array',
-                  },
-                },
-
-                required: [
-                  'program_name',
-                  'duration_weeks',
-                  'macrocycle',
-                  'mesocycles',
-                ],
-              },
-            },
+            body: structureBody,
           }
         );
 
       console.log(
-        '[ONBOARDING] Structure response:',
+        '[ONBOARDING] workout-generation STRUCTURE RESPONSE:',
         structureResponse
       );
+
+      if (structureResponse?.error) {
+        console.error(
+          '[ONBOARDING] workout-generation STRUCTURE ERROR:',
+          structureResponse.error
+        );
+      }
 
       const structureResult =
         normalizeFunctionResponse(
           structureResponse
         );
+
+      console.log(
+        '[ONBOARDING] STRUCTURE RESULT:',
+        structureResult
+      );
 
       if (
         !structureResult ||
@@ -939,20 +983,21 @@ export default function Onboarding() {
           ? structureResult.mesocycles
           : [];
 
-      if (mesocycles.length === 0) {
+      console.log(
+        '[ONBOARDING] Mesocycles returned:',
+        mesocycles.length
+      );
+
+      if (!mesocycles.length) {
         throw new Error(
           'AI returned no training phases. Please try again.'
         );
       }
 
-      console.log(
-        '[ONBOARDING] Structure generated:',
-        structureResult
-      );
-
       /*
-       * PHASE 2
-       * Generate the microcycles for every mesocycle.
+       * ========================================================
+       * PHASE 2 — MICROCYCLES
+       * ========================================================
        */
 
       const allMicrocycles = [];
@@ -960,34 +1005,33 @@ export default function Onboarding() {
       for (
         let index = 0;
         index < mesocycles.length;
-        index += 1
+        index++
       ) {
         const meso =
           mesocycles[index];
 
+        const target =
+          30 +
+          ((index + 1) /
+            mesocycles.length) *
+            60;
+
+        runProgressTo(target);
+
         const phaseName =
           meso?.name ||
           `training phase ${index + 1}`;
-
-        const phaseProgress =
-          25 +
-          ((index + 1) /
-            mesocycles.length) *
-            65;
-
-        runProgressTo(
-          Math.min(
-            phaseProgress,
-            90
-          )
-        );
 
         setLoadingPhase(
           `Building ${phaseName}…`
         );
 
         console.log(
-          `[ONBOARDING] Building microcycle ${index + 1}/${mesocycles.length}`
+          '[ONBOARDING] ========================================'
+        );
+
+        console.log(
+          `[ONBOARDING] MICRO CYCLE ${index + 1}/${mesocycles.length}`
         );
 
         const microPrompt =
@@ -998,53 +1042,68 @@ export default function Onboarding() {
             meso
           );
 
-        if (
-          typeof microPrompt !==
-            'string' ||
-          !microPrompt.trim()
-        ) {
-          throw new Error(
-            `Could not create the workout prompt for ${phaseName}.`
-          );
-        }
+        console.log(
+          '[ONBOARDING] Microcycle prompt length:',
+          microPrompt?.length
+        );
+
+        const microBody = {
+          type: 'microcycle',
+
+          prompt:
+            microPrompt,
+
+          schema: {
+            type: 'object',
+
+            additionalProperties: false,
+
+            properties: {
+              microcycles: {
+                type: 'array',
+              },
+            },
+
+            required: [
+              'microcycles',
+            ],
+          },
+        };
+
+        console.log(
+          '[ONBOARDING] CALLING workout-generation FOR MICRO CYCLE:',
+          index + 1
+        );
 
         const microResponse =
           await supabase.functions.invoke(
             'workout-generation',
             {
-              body: {
-                type: 'microcycle',
-
-                prompt:
-                  microPrompt,
-
-                schema: {
-                  type: 'object',
-                  additionalProperties: false,
-
-                  properties: {
-                    microcycles: {
-                      type: 'array',
-                    },
-                  },
-
-                  required: [
-                    'microcycles',
-                  ],
-                },
-              },
+              body: microBody,
             }
           );
 
         console.log(
-          `[ONBOARDING] Microcycle ${index + 1} response:`,
+          `[ONBOARDING] MICRO CYCLE ${index + 1} RESPONSE:`,
           microResponse
         );
+
+        if (microResponse?.error) {
+          console.error(
+            `[ONBOARDING] MICRO CYCLE ${index + 1} ERROR:`,
+            microResponse.error
+          );
+        }
 
         const microResult =
           normalizeFunctionResponse(
             microResponse
           );
+
+        console.log(
+          `[ONBOARDING] MICRO CYCLE ${index + 1} RESULT:`,
+          microResult
+        );
 
         const generatedMicrocycles =
           Array.isArray(
@@ -1054,8 +1113,7 @@ export default function Onboarding() {
             : [];
 
         if (
-          generatedMicrocycles.length ===
-          0
+          !generatedMicrocycles.length
         ) {
           throw new Error(
             `AI returned no workouts for ${phaseName}.`
@@ -1066,32 +1124,29 @@ export default function Onboarding() {
           ...generatedMicrocycles
         );
 
-        setProgress(
-          Math.min(
-            phaseProgress,
-            90
-          )
-        );
-      }
-
-      if (allMicrocycles.length === 0) {
-        throw new Error(
-          'No workouts were generated. Please try again.'
+        console.log(
+          `[ONBOARDING] Total microcycles generated so far: ${allMicrocycles.length}`
         );
       }
 
       console.log(
-        '[ONBOARDING] All microcycles generated:',
+        '[ONBOARDING] ALL MICROCYCLES GENERATED:',
         allMicrocycles
       );
 
       /*
-       * PHASE 3
-       * Save the completed program.
+       * ========================================================
+       * PHASE 3 — SAVE PROGRAM
+       * ========================================================
        */
 
-      clearProgressTimer();
-      setProgress(93);
+      if (progressTimer.current) {
+        clearInterval(
+          progressTimer.current
+        );
+      }
+
+      setProgress(94);
 
       setLoadingPhase(
         'Saving your personalized program…'
@@ -1100,21 +1155,7 @@ export default function Onboarding() {
       const programPayload = {
         user_id: user.id,
 
-        program_name:
-          structureResult.program_name ||
-          'Personalized Training Program',
-
-        duration_weeks:
-          structureResult.duration_weeks ||
-          1,
-
-        macrocycle:
-          structureResult.macrocycle ||
-          {},
-
-        mesocycles:
-          structureResult.mesocycles ||
-          [],
+        ...structureResult,
 
         microcycles:
           allMicrocycles,
@@ -1126,11 +1167,9 @@ export default function Onboarding() {
           level || 'intermediate',
 
         goal:
-          getPrimaryGoal({
-            goalDescription,
-            weightGoals,
-            fitnessGoals,
-          }),
+          goalDescription.trim() ||
+          weightGoals.join(', ') ||
+          fitnessGoals.join(', '),
 
         current_week: 1,
 
@@ -1138,7 +1177,12 @@ export default function Onboarding() {
       };
 
       console.log(
-        '[ONBOARDING] Saving workout program...'
+        '[ONBOARDING] PROGRAM PAYLOAD:',
+        programPayload
+      );
+
+      console.log(
+        '[ONBOARDING] Calling workout_programs.insert()...'
       );
 
       const {
@@ -1150,30 +1194,34 @@ export default function Onboarding() {
         .select()
         .single();
 
-      if (programError) {
-        console.error(
-          '[ONBOARDING] Program database error:',
-          programError
-        );
+      console.log(
+        '[ONBOARDING] PROGRAM INSERT RESPONSE:',
+        {
+          savedProgram,
+          programError,
+        }
+      );
 
-        throw new Error(
-          `Your workouts were generated, but the program could not be saved: ${getErrorMessage(
-            programError,
-            'Unknown database error.'
-          )}`
-        );
+      if (programError) {
+        throw programError;
       }
 
       console.log(
-        '[ONBOARDING] Program saved:',
+        '[ONBOARDING] PROGRAM SAVED SUCCESSFULLY:',
         savedProgram
       );
 
       /*
+       * ========================================================
        * COMPLETE
+       * ========================================================
        */
 
-      clearProgressTimer();
+      if (progressTimer.current) {
+        clearInterval(
+          progressTimer.current
+        );
+      }
 
       setProgress(100);
 
@@ -1181,28 +1229,67 @@ export default function Onboarding() {
         'Your program is ready!'
       );
 
-      await queryClientInstance.invalidateQueries();
+      try {
+        await queryClientInstance.invalidateQueries();
+      } catch (queryError) {
+        console.warn(
+          '[ONBOARDING] Query invalidation failed:',
+          queryError
+        );
+      }
 
       toast.success(
         'Your personalized program is ready!'
       );
 
       console.log(
+        '[ONBOARDING] ========================================'
+      );
+
+      console.log(
         '[ONBOARDING] PROGRAM GENERATION COMPLETE'
+      );
+
+      console.log(
+        '[ONBOARDING] Navigating to dashboard...'
       );
 
       setTimeout(() => {
         navigate('/', {
           replace: true,
         });
-      }, 800);
+      }, 700);
     } catch (error) {
       console.error(
-        '[ONBOARDING] PROGRAM GENERATION FAILED:',
+        '[ONBOARDING] ========================================'
+      );
+
+      console.error(
+        '[ONBOARDING] PROGRAM GENERATION FAILED'
+      );
+
+      console.error(
+        '[ONBOARDING] Raw error:',
         error
       );
 
-      clearProgressTimer();
+      console.error(
+        '[ONBOARDING] Error message:',
+        getErrorMessage(
+          error,
+          'Unknown error'
+        )
+      );
+
+      if (progressTimer.current) {
+        clearInterval(
+          progressTimer.current
+        );
+      }
+
+      setLoading(false);
+      setProgress(0);
+      setLoadingPhase('');
 
       const message =
         getErrorMessage(
@@ -1210,12 +1297,12 @@ export default function Onboarding() {
           'Failed to generate your program. Please try again.'
         );
 
-      setLoading(false);
-      setProgress(0);
-      setLoadingPhase('');
-
       toast.error(message);
 
+      /*
+       * IMPORTANT:
+       * Keep the user on the onboarding page so they can retry.
+       */
       console.error(
         '[ONBOARDING] User-facing error:',
         message
@@ -1239,9 +1326,16 @@ export default function Onboarding() {
             />
           ))}
         </div>
+
+        <p className="text-xs text-muted-foreground text-right">
+          Step {step + 1} of 5
+        </p>
       </div>
 
       <AnimatePresence mode="wait">
+        {/* =====================================================
+            STEP 0
+        ===================================================== */}
         {step === 0 && (
           <motion.div
             key="welcome"
@@ -1268,8 +1362,7 @@ export default function Onboarding() {
 
             <p className="text-muted-foreground text-lg mb-8">
               Your AI-powered training coach.
-              Let&apos;s build your perfect
-              program.
+              Let's build your perfect program.
             </p>
 
             <div className="flex-1 flex flex-col justify-center gap-4">
@@ -1399,6 +1492,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
+        {/* =====================================================
+            STEP 1
+        ===================================================== */}
         {step === 1 && (
           <motion.div
             key="training-type"
@@ -1461,6 +1557,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
+        {/* =====================================================
+            STEP 2
+        ===================================================== */}
         {step === 2 && (
           <motion.div
             key="bodystats"
@@ -1533,8 +1632,8 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
-                    min="1"
-                    max="120"
+                    min="13"
+                    max="100"
                     placeholder="e.g. 24"
                     value={age}
                     onChange={(event) =>
@@ -1586,8 +1685,8 @@ export default function Onboarding() {
                 'metric' ? (
                   <Input
                     type="number"
-                    min="1"
-                    step="0.1"
+                    min="50"
+                    max="250"
                     placeholder="Height in cm (e.g. 178)"
                     value={heightFt}
                     onChange={(event) =>
@@ -1601,7 +1700,7 @@ export default function Onboarding() {
                   <div className="grid grid-cols-2 gap-3">
                     <Input
                       type="number"
-                      min="1"
+                      min="3"
                       max="8"
                       placeholder="Feet (e.g. 5)"
                       value={heightFt}
@@ -1721,6 +1820,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
+        {/* =====================================================
+            STEP 3
+        ===================================================== */}
         {step === 3 && (
           <motion.div
             key="step3"
@@ -1821,6 +1923,11 @@ export default function Onboarding() {
                                 placeholder
                               }
                               className="text-sm resize-none min-h-[72px] rounded-2xl border-primary/40 bg-primary/5 focus:border-primary leading-relaxed"
+                              onClick={(
+                                event
+                              ) =>
+                                event.stopPropagation()
+                              }
                             />
 
                             <p className="text-xs text-muted-foreground mt-1 pl-1">
@@ -1975,7 +2082,15 @@ export default function Onboarding() {
                 type="button"
                 size="lg"
                 className="flex-1 h-14 text-lg font-heading font-semibold"
-                disabled={!step3Valid}
+                disabled={
+                  hasSkills
+                    ? !level ||
+                      (hasWeightGoals &&
+                        weightGoals.length ===
+                          0)
+                    : weightGoals.length ===
+                      0
+                }
                 onClick={() =>
                   setStep(4)
                 }
@@ -1987,6 +2102,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
+        {/* =====================================================
+            STEP 4
+        ===================================================== */}
         {step === 4 && (
           <motion.div
             key="step4"
@@ -2004,196 +2122,233 @@ export default function Onboarding() {
             }}
             className="flex-1 flex flex-col px-6"
           >
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="w-5 h-5 text-primary" />
+            <form
+              onSubmit={handleGenerate}
+              className="flex-1 flex flex-col"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-5 h-5 text-primary" />
 
-              <h2 className="font-heading text-2xl font-bold">
+                <h2 className="font-heading text-2xl font-bold">
+                  {hasSkills
+                    ? `Tell us your goals, ${
+                        firstName ||
+                        'Athlete'
+                      }`
+                    : `Final details, ${
+                        firstName ||
+                        'Athlete'
+                      }`}
+                </h2>
+              </div>
+
+              <p className="text-muted-foreground mb-4">
                 {hasSkills
-                  ? `Tell us your goals, ${
-                      firstName ||
-                      'Athlete'
-                    }`
-                  : `Final details, ${
-                      firstName ||
-                      'Athlete'
-                    }`}
-              </h2>
-            </div>
+                  ? 'Describe your goals, what you want to achieve, and any limitations. The more detail you give, the more personalized your program will be.'
+                  : 'List your available equipment and any requirements. This helps us build the perfect program for you.'}
+              </p>
 
-            <p className="text-muted-foreground mb-4">
-              {hasSkills
-                ? 'Describe your goals, what you want to achieve, and any limitations. The more detail you give, the more personalized your program will be.'
-                : 'List your available equipment and any requirements. This helps us build the perfect program for you.'}
-            </p>
+              <div className="flex-1 flex flex-col gap-3">
+                {hasSkills && (
+                  <>
+                    <Textarea
+                      value={goalDescription}
+                      onChange={(event) =>
+                        setGoalDescription(
+                          event.target
+                            .value
+                        )
+                      }
+                      placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
+                      className="min-h-[140px] text-sm resize-none bg-card border-border focus:border-primary rounded-2xl p-4 leading-relaxed"
+                      disabled={loading}
+                    />
 
-            <div className="flex-1 flex flex-col gap-3">
-              {hasSkills && (
-                <>
+                    <div className="bg-muted/50 rounded-2xl p-4 border border-border">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                        ⏱ Timeframe for your goals
+                      </p>
+
+                      <Textarea
+                        value={timeframe}
+                        onChange={(event) =>
+                          setTimeframe(
+                            event.target
+                              .value
+                          )
+                        }
+                        placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
+                        className="min-h-[60px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
+                        disabled={loading}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {!hasSkills && (
+                  <div className="bg-muted/50 rounded-2xl p-4 border border-border">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                      📋 Goals summary
+                    </p>
+
+                    <p className="text-sm text-muted-foreground">
+                      You selected:{' '}
+                      <span className="font-semibold text-foreground">
+                        {weightGoals.join(
+                          ', '
+                        ) ||
+                          'General fitness'}
+                      </span>
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-muted/50 rounded-2xl p-4 border border-border">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    🏋️ Available equipment{' '}
+                    <span className="text-destructive">
+                      *
+                    </span>
+                  </p>
+
                   <Textarea
-                    value={goalDescription}
+                    value={equipment}
                     onChange={(event) =>
-                      setGoalDescription(
+                      setEquipment(
                         event.target.value
                       )
                     }
-                    placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
-                    className="min-h-[140px] text-sm resize-none bg-card border-border focus:border-primary rounded-2xl p-4 leading-relaxed"
+                    placeholder={
+                      hasSkills
+                        ? 'e.g. "Pull-up bar, dip bars, resistance bands, gymnastic rings, parallettes."'
+                        : 'e.g. "Full gym access: barbells, dumbbells, cables, machines, squat rack, bench."'
+                    }
+                    className="min-h-[70px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
+                    disabled={loading}
                   />
 
-                  <div className="bg-muted/50 rounded-2xl p-4 border border-border">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                      ⏱ Timeframe for your goals
-                    </p>
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    List everything you have
+                    access to — this is required.
+                  </p>
+                </div>
 
-                    <Textarea
-                      value={timeframe}
-                      onChange={(event) =>
-                        setTimeframe(
-                          event.target.value
-                        )
-                      }
-                      placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
-                      className="min-h-[60px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
-                    />
-                  </div>
-                </>
-              )}
-
-              {!hasSkills && (
                 <div className="bg-muted/50 rounded-2xl p-4 border border-border">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    📋 Goals summary
+                    📝 Requirements & Notes
                   </p>
 
-                  <p className="text-sm text-muted-foreground">
-                    You selected:{' '}
-                    <span className="font-semibold text-foreground">
-                      {weightGoals.join(
-                        ', '
-                      ) ||
-                        'General fitness'}
-                    </span>
+                  <Textarea
+                    value={requirements}
+                    onChange={(event) =>
+                      setRequirements(
+                        event.target.value
+                      )
+                    }
+                    placeholder='e.g. "I can train 4 days a week, about 60 min per session. I want to focus on my chest and shoulders."'
+                    className="min-h-[80px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
+                    disabled={loading}
+                  />
+
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Time available, limitations,
+                    areas to focus on, and anything
+                    else that helps personalize your
+                    program.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mb-8 mt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-14"
+                  disabled={loading}
+                  onClick={() =>
+                    setStep(3)
+                  }
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+
+                {/*
+                 * ==================================================
+                 * IMPORTANT:
+                 *
+                 * This is deliberately a NATIVE BUTTON.
+                 *
+                 * We do not use the custom Button component here.
+                 * It is inside a real form, and clicking it submits
+                 * the form through handleGenerate().
+                 * ==================================================
+                 */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  onClick={() => {
+                    console.log(
+                      '[ONBOARDING] BUILD MY PROGRAM NATIVE BUTTON CLICKED'
+                    );
+                  }}
+                  className={cn(
+                    'flex-1 h-14 rounded-md px-6 text-lg font-heading font-semibold',
+                    'inline-flex items-center justify-center',
+                    'bg-primary text-primary-foreground',
+                    'hover:bg-primary/90',
+                    'transition-colors',
+                    'disabled:pointer-events-none disabled:opacity-50'
+                  )}
+                >
+                  {loading ? (
+                    <div className="flex items-center gap-3 w-full justify-center">
+                      <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+
+                      <span className="truncate">
+                        {loadingPhase ||
+                          'Building your program…'}{' '}
+                        {Math.round(
+                          progress
+                        )}
+                        %
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      Build My Program
+                      <Sparkles className="ml-2 w-5 h-5" />
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {loading && (
+                <div className="mb-6 space-y-2">
+                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                      style={{
+                        width: `${progress}%`,
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground text-center">
+                    {loadingPhase ||
+                      'Building your program…'}
                   </p>
                 </div>
               )}
 
-              <div className="bg-muted/50 rounded-2xl p-4 border border-border">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  🏋️ Available equipment{' '}
-                  <span className="text-destructive">
-                    *
-                  </span>
+              {!loading && (
+                <p className="text-[11px] text-muted-foreground text-center mb-4">
+                  Clicking Build My Program will
+                  generate and save your personalized
+                  training program.
                 </p>
-
-                <Textarea
-                  value={equipment}
-                  onChange={(event) =>
-                    setEquipment(
-                      event.target.value
-                    )
-                  }
-                  placeholder={
-                    hasSkills
-                      ? 'e.g. "Pull-up bar, dip bars, resistance bands, gymnastic rings, parallettes."'
-                      : 'e.g. "Full gym access: barbells, dumbbells, cables, machines, squat rack, bench."'
-                  }
-                  className="min-h-[70px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
-                />
-
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  List everything you have
-                  access to — this is required.
-                </p>
-              </div>
-
-              <div className="bg-muted/50 rounded-2xl p-4 border border-border">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  📝 Requirements & Notes
-                </p>
-
-                <Textarea
-                  value={requirements}
-                  onChange={(event) =>
-                    setRequirements(
-                      event.target.value
-                    )
-                  }
-                  placeholder='e.g. "I can train 4 days a week, about 60 min per session. I want to focus on my chest and shoulders."'
-                  className="min-h-[80px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
-                />
-
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Time available, limitations,
-                  areas to focus on, and anything
-                  else that helps personalize your
-                  program.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mb-8 mt-4">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-14"
-                disabled={loading}
-                onClick={() =>
-                  setStep(3)
-                }
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-
-              <Button
-                type="button"
-                size="lg"
-                className="flex-1 h-14 text-lg font-heading font-semibold"
-                disabled={
-                  loading ||
-                  !step4Valid
-                }
-                onClick={handleGenerate}
-              >
-                {loading ? (
-                  <div className="flex items-center gap-3 w-full justify-center">
-                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-
-                    <span className="truncate">
-                      {loadingPhase ||
-                        'Building your program…'}{' '}
-                      {Math.round(
-                        progress
-                      )}
-                      %
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    Build My Program
-                    <Sparkles className="ml-2 w-5 h-5" />
-                  </>
-                )}
-              </Button>
-            </div>
-
-            {loading && (
-              <div className="mb-6 space-y-2">
-                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${progress}%`,
-                    }}
-                  />
-                </div>
-
-                <p className="text-xs text-muted-foreground text-center">
-                  {loadingPhase ||
-                    'Building your program…'}
-                </p>
-              </div>
-            )}
+              )}
+            </form>
           </motion.div>
         )}
       </AnimatePresence>
