@@ -21,11 +21,28 @@ import { toast } from 'sonner';
 import { queryClientInstance } from '@/lib/query-client';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { TrainingTypeSelect } from '@/components/onboarding/TrainingTypeSelect';
-import { COUNTRIES, LANGUAGES, getCountryDefaults } from '@/lib/countries';
+
+/*
+ * IMPORTANT:
+ * TrainingTypeSelect.jsx exports a DEFAULT component,
+ * so this must NOT use:
+ *
+ * import { TrainingTypeSelect } ...
+ *
+ * It must use:
+ */
+import TrainingTypeSelect from '@/components/onboarding/TrainingTypeSelect';
+
+import {
+  COUNTRIES,
+  LANGUAGES,
+  getCountryDefaults,
+} from '@/lib/countries';
+
 import { useAppSettings } from '@/lib/AppSettingsContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+
 import {
   CALISTHENICS_GOALS,
   WEIGHT_GOALS,
@@ -83,7 +100,10 @@ const GOAL_ICONS = {
    HELPERS
 ============================================================ */
 
-function getErrorMessage(error, fallback = 'Something went wrong.') {
+function getErrorMessage(
+  error,
+  fallback = 'Something went wrong.'
+) {
   if (!error) return fallback;
 
   if (typeof error === 'string') {
@@ -113,79 +133,72 @@ function getErrorMessage(error, fallback = 'Something went wrong.') {
   try {
     const stringified = JSON.stringify(error);
 
-    if (stringified && stringified !== '{}') {
+    if (
+      stringified &&
+      stringified !== '{}'
+    ) {
       return stringified;
     }
   } catch {
-    // Ignore serialization errors.
+    // Ignore JSON serialization errors.
   }
 
   return fallback;
 }
 
-function normalizeFunctionResponse(response, functionName) {
+function normalizeFunctionResponse(
+  response,
+  functionName
+) {
   console.log(
-    '[ONBOARDING]',
-    functionName,
-    'raw response:',
+    `[ONBOARDING] ${functionName} raw response:`,
     response
   );
 
   if (!response) {
-    throw new Error(functionName + ' returned no response.');
+    throw new Error(
+      `${functionName} returned no response.`
+    );
   }
 
   if (response.error) {
     throw new Error(
       getErrorMessage(
         response.error,
-        functionName + ' returned an error.'
+        `${functionName} returned an error.`
       )
     );
   }
 
   if (response.data == null) {
     throw new Error(
-      functionName + ' returned an empty response.'
+      `${functionName} returned an empty response.`
     );
   }
 
   const data = response.data;
 
-  if (data && data.success === false) {
+  if (data?.success === false) {
     throw new Error(
       getErrorMessage(
-        data.error || data.message,
-        functionName + ' failed.'
+        data?.error || data?.message,
+        `${functionName} failed.`
       )
     );
   }
 
-  return data && data.result != null
-    ? data.result
-    : data;
+  return data?.result ?? data;
 }
 
-/*
- * This progress system is deliberately NOT time based.
- *
- * The percentage represents completed known operations.
- * While an operation is running, the percentage does not
- * move until that operation actually succeeds.
- *
- * Therefore:
- *
- * 0%   = nothing started
- * 10%  = authentication complete
- * 20%  = profile saved
- * 30%  = structure generated
- * 30–85% = each microcycle generation actually completed
- * 90%  = program saved
- * 95%  = cache refresh completed
- * 100% = finished
- *
- * The percentage is NOT an estimate of remaining time.
- */
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+/* ============================================================
+   SEARCH SELECT
+============================================================ */
 
 function SearchSelect({
   value,
@@ -199,7 +212,9 @@ function SearchSelect({
   const filtered = useMemo(() => {
     return options
       .filter((option) =>
-        option.toLowerCase().includes(search.toLowerCase())
+        option
+          .toLowerCase()
+          .includes(search.toLowerCase())
       )
       .slice(0, 200);
   }, [options, search]);
@@ -214,7 +229,9 @@ function SearchSelect({
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => !current)
+        }
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
@@ -238,7 +255,9 @@ function SearchSelect({
             <input
               autoFocus
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               placeholder="Search..."
               className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
             />
@@ -275,7 +294,14 @@ function SearchSelect({
   );
 }
 
-function CountrySelect({ value, onChange }) {
+/* ============================================================
+   COUNTRY SELECT
+============================================================ */
+
+function CountrySelect({
+  value,
+  onChange,
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -285,7 +311,9 @@ function CountrySelect({ value, onChange }) {
 
   const filtered = useMemo(() => {
     return COUNTRIES.filter((item) =>
-      item.name.toLowerCase().includes(search.toLowerCase())
+      item.name
+        .toLowerCase()
+        .includes(search.toLowerCase())
     );
   }, [search]);
 
@@ -293,7 +321,9 @@ function CountrySelect({ value, onChange }) {
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => !current)
+        }
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
@@ -303,7 +333,8 @@ function CountrySelect({ value, onChange }) {
               : 'text-muted-foreground'
           }
         >
-          {selected?.name || 'Select your country…'}
+          {selected?.name ||
+            'Select your country…'}
         </span>
 
         <span className="text-muted-foreground text-xs">
@@ -317,7 +348,9 @@ function CountrySelect({ value, onChange }) {
             <input
               autoFocus
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               placeholder="Search country..."
               className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
             />
@@ -369,47 +402,72 @@ export default function Onboarding() {
   const [lastName, setLastName] = useState('');
 
   const [country, setCountry] = useState('');
-  const [language, setLanguage] = useState('English');
-  const [unit, setUnit] = useState('imperial');
+  const [language, setLanguage] =
+    useState('English');
+  const [unit, setUnit] =
+    useState('imperial');
 
-  const [trainingType, setTrainingType] = useState('');
+  const [trainingType, setTrainingType] =
+    useState('');
   const [level, setLevel] = useState('');
 
-  const [goalDescription, setGoalDescription] = useState('');
-  const [timeframe, setTimeframe] = useState('');
-  const [equipment, setEquipment] = useState('');
-  const [requirements, setRequirements] = useState('');
+  const [goalDescription, setGoalDescription] =
+    useState('');
+
+  const [timeframe, setTimeframe] =
+    useState('');
+  const [equipment, setEquipment] =
+    useState('');
+  const [requirements, setRequirements] =
+    useState('');
 
   const [age, setAge] = useState('');
-  const [weightLbs, setWeightLbs] = useState('');
-  const [heightFt, setHeightFt] = useState('');
-  const [heightIn, setHeightIn] = useState('');
+  const [weightLbs, setWeightLbs] =
+    useState('');
 
-  const [fitnessGoals, setFitnessGoals] = useState([]);
-  const [currentSkills, setCurrentSkills] = useState('');
-  const [gender, setGender] = useState('');
-  const [weightGoals, setWeightGoals] = useState([]);
+  const [heightFt, setHeightFt] =
+    useState('');
+  const [heightIn, setHeightIn] =
+    useState('');
 
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [loadingPhase, setLoadingPhase] = useState('');
-  const [generationError, setGenerationError] = useState('');
+  const [fitnessGoals, setFitnessGoals] =
+    useState([]);
+  const [currentSkills, setCurrentSkills] =
+    useState('');
+  const [gender, setGender] =
+    useState('');
+  const [weightGoals, setWeightGoals] =
+    useState([]);
 
-  const generationStartedRef = useRef(false);
+  const [loading, setLoading] =
+    useState(false);
+  const [progress, setProgress] =
+    useState(0);
+  const [loadingPhase, setLoadingPhase] =
+    useState('');
+
+  const generationStartedRef =
+    useRef(false);
 
   const hasSkills =
     trainingType === 'calisthenics' ||
-    trainingType === 'weighted_calisthenics' ||
+    trainingType ===
+      'weighted_calisthenics' ||
     trainingType === 'hybrid';
 
   const hasWeightGoals =
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
+  /* ==========================================================
+     COUNTRY
+  ========================================================== */
+
   const handleCountryChange = (code) => {
     setCountry(code);
 
-    const defaults = getCountryDefaults(code);
+    const defaults =
+      getCountryDefaults(code);
 
     if (defaults) {
       setLanguage(defaults.language);
@@ -417,10 +475,16 @@ export default function Onboarding() {
     }
   };
 
+  /* ==========================================================
+     GOALS
+  ========================================================== */
+
   const toggleGoal = (value) => {
     setFitnessGoals((previous) =>
       previous.includes(value)
-        ? previous.filter((goal) => goal !== value)
+        ? previous.filter(
+            (goal) => goal !== value
+          )
         : [...previous, value]
     );
   };
@@ -428,156 +492,91 @@ export default function Onboarding() {
   const toggleWeightGoal = (value) => {
     setWeightGoals((previous) =>
       previous.includes(value)
-        ? previous.filter((goal) => goal !== value)
+        ? previous.filter(
+            (goal) => goal !== value
+          )
         : [...previous, value]
     );
   };
+
+  /* ==========================================================
+     BROWSER BACK BUTTON
+  ========================================================== */
 
   useEffect(() => {
     if (step === 0) return;
 
     window.history.pushState(
-      { onboardingStep: step },
+      {
+        onboardingStep: step,
+      },
       ''
     );
 
     const handlePopState = () => {
       if (!loading) {
-        setStep((current) => Math.max(0, current - 1));
+        setStep((current) =>
+          Math.max(0, current - 1)
+        );
       }
     };
 
-    window.addEventListener('popstate', handlePopState);
+    window.addEventListener(
+      'popstate',
+      handlePopState
+    );
 
     return () => {
-      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener(
+        'popstate',
+        handlePopState
+      );
     };
   }, [step, loading]);
+
+  /* ==========================================================
+     VALIDATION
+  ========================================================== */
 
   const step3Valid = hasSkills
     ? Boolean(
         level &&
-          (!hasWeightGoals || weightGoals.length > 0)
+          (!hasWeightGoals ||
+            weightGoals.length > 0)
       )
     : weightGoals.length > 0;
 
   const generateValid =
     equipment.trim().length > 0 &&
-    (!hasSkills || goalDescription.trim().length >= 10);
+    (!hasSkills ||
+      goalDescription.trim().length >= 10);
 
-  /*
-   * Centralized progress update.
-   */
-  const setGenerationStage = (value, message) => {
-    const safeValue = Math.max(
-      0,
-      Math.min(100, Math.round(value))
-    );
+  /* ==========================================================
+     PROGRESS
+  ========================================================== */
 
+  const setGenerationStage = (
+    value,
+    message
+  ) => {
     console.log(
-      '[ONBOARDING] PROGRESS:',
-      safeValue + '%',
-      message
+      `[ONBOARDING] PROGRESS ${value}% — ${message}`
     );
 
-    setProgress(safeValue);
+    setProgress(value);
     setLoadingPhase(message);
   };
 
-  /*
-   * Explicit wrapper around Supabase function invocation.
-   *
-   * This is intentionally verbose so the browser console clearly
-   * shows whether the request was attempted and whether Supabase
-   * returned.
-   */
-  const invokeWorkoutGeneration = async (
-    type,
-    prompt,
-    schema,
-    label
-  ) => {
-    console.log(
-      '[ONBOARDING] ========================================'
-    );
-
-    console.log(
-      '[ONBOARDING] SUPABASE INVOCATION START:',
-      label
-    );
-
-    console.log(
-      '[ONBOARDING] Function:',
-      'workout-generation'
-    );
-
-    console.log(
-      '[ONBOARDING] Type:',
-      type
-    );
-
-    console.log(
-      '[ONBOARDING] Supabase client exists:',
-      Boolean(supabase)
-    );
-
-    if (!supabase) {
-      throw new Error(
-        'Supabase client is not available in the browser.'
-      );
-    }
-
-    try {
-      const response =
-        await supabase.functions.invoke(
-          'workout-generation',
-          {
-            body: {
-              type,
-              prompt,
-              schema,
-            },
-          }
-        );
-
-      console.log(
-        '[ONBOARDING] SUPABASE INVOCATION RETURNED:',
-        label,
-        response
-      );
-
-      console.log(
-        '[ONBOARDING] SUPABASE INVOCATION END:',
-        label
-      );
-
-      return normalizeFunctionResponse(
-        response,
-        label
-      );
-    } catch (error) {
-      console.error(
-        '[ONBOARDING] SUPABASE INVOCATION FAILED:',
-        label,
-        error
-      );
-
-      throw error;
-    }
-  };
-
-  /* ============================================================
+  /* ==========================================================
      GENERATION
-  ============================================================ */
+  ========================================================== */
 
   const handleGenerate = async (event) => {
-    if (event) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
 
     console.log(
-      '[ONBOARDING] ========================================'
+      '================================================'
     );
 
     console.log(
@@ -585,37 +584,29 @@ export default function Onboarding() {
     );
 
     console.log(
-      '[ONBOARDING] Button handler reached successfully.'
-    );
-
-    console.log(
-      '[ONBOARDING] Current form state:',
-      {
-        trainingType,
-        level,
-        equipment,
-        goalDescription,
-        fitnessGoals,
-        weightGoals,
-      }
+      '================================================'
     );
 
     /*
      * Prevent duplicate generation.
      */
-    if (generationStartedRef.current || loading) {
-      console.warn(
-        '[ONBOARDING] Generation already running.'
+    if (
+      generationStartedRef.current ||
+      loading
+    ) {
+      console.log(
+        '[ONBOARDING] Generation already running — ignoring duplicate click.'
       );
+
       return;
     }
 
     /*
-     * Validate before locking the process.
+     * Validate equipment.
      */
     if (!equipment.trim()) {
       console.warn(
-        '[ONBOARDING] Generation blocked: equipment missing.'
+        '[ONBOARDING] Missing equipment.'
       );
 
       toast.error(
@@ -625,12 +616,16 @@ export default function Onboarding() {
       return;
     }
 
+    /*
+     * Validate detailed goal for
+     * calisthenics / hybrid users.
+     */
     if (
       hasSkills &&
       goalDescription.trim().length < 10
     ) {
       console.warn(
-        '[ONBOARDING] Generation blocked: goal description too short.'
+        '[ONBOARDING] Goal description is too short.'
       );
 
       toast.error(
@@ -641,20 +636,15 @@ export default function Onboarding() {
     }
 
     /*
-     * LOCK IMMEDIATELY.
-     *
-     * This happens synchronously inside the click handler,
-     * before the first await.
+     * LOCK BEFORE ANY ASYNC OPERATION.
      */
     generationStartedRef.current = true;
-    setGenerationError('');
+
     setLoading(true);
 
-    /*
-     * The user should immediately see that the click worked.
-     */
-    setGenerationStage(
-      1,
+    setProgress(5);
+
+    setLoadingPhase(
       'Starting your personalized program…'
     );
 
@@ -663,57 +653,43 @@ export default function Onboarding() {
     );
 
     try {
-      /* ========================================================
-         1. SETTINGS
-      ======================================================== */
+      /* ======================================================
+         STEP 1 — SETTINGS
+      ====================================================== */
 
       console.log(
-        '[ONBOARDING] Updating application settings...'
+        '[ONBOARDING] Updating app settings...'
       );
 
-      try {
-        updateSettings({
-          country,
-          language,
-          unit,
-        });
-      } catch (settingsError) {
-        console.warn(
-          '[ONBOARDING] Settings update warning:',
-          settingsError
-        );
-      }
+      updateSettings({
+        country,
+        language,
+        unit,
+      });
 
-      /* ========================================================
-         2. AUTHENTICATION
-      ======================================================== */
+      /* ======================================================
+         STEP 2 — AUTH
+      ====================================================== */
 
       setGenerationStage(
-        5,
+        7,
         'Connecting to your account…'
       );
 
       console.log(
-        '[ONBOARDING] ABOUT TO CALL supabase.auth.getUser()'
+        '[ONBOARDING] Calling supabase.auth.getUser()...'
       );
-
-      if (!supabase) {
-        throw new Error(
-          'Supabase client is not initialized.'
-        );
-      }
 
       const {
         data: authData,
         error: authError,
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
       console.log(
-        '[ONBOARDING] supabase.auth.getUser() RETURNED:',
-        {
-          authData,
-          authError,
-        }
+        '[ONBOARDING] Auth response:',
+        authData,
+        authError
       );
 
       if (authError) {
@@ -738,30 +714,15 @@ export default function Onboarding() {
         user.id
       );
 
-      /* ========================================================
-         3. PROFILE
-      ======================================================== */
+      /* ======================================================
+         STEP 3 — PROFILE DATA
+      ====================================================== */
 
-      const parsedAge = parseInt(age, 10);
+      const parsedAge =
+        parseInt(age, 10);
 
-      /*
-       * NOTE:
-       * The existing database field is weight_lbs.
-       * For metric users we convert kg -> lbs before saving.
-       */
-      let weightInLbs = null;
-
-      const parsedWeight = parseFloat(weightLbs);
-
-      if (
-        Number.isFinite(parsedWeight) &&
-        parsedWeight > 0
-      ) {
-        weightInLbs =
-          unit === 'metric'
-            ? parsedWeight * 2.2046226218
-            : parsedWeight;
-      }
+      const parsedWeight =
+        parseFloat(weightLbs);
 
       let heightInches = null;
       let heightCm = null;
@@ -776,27 +737,36 @@ export default function Onboarding() {
         const calculated =
           feet * 12 + inches;
 
-        if (calculated > 0) {
-          heightInches = calculated;
-        }
+        heightInches =
+          calculated > 0
+            ? calculated
+            : null;
       } else {
-        const cm = parseFloat(heightFt);
+        const cm =
+          parseFloat(heightFt);
 
-        if (
+        heightCm =
           Number.isFinite(cm) &&
           cm > 0
-        ) {
-          heightCm = cm;
-        }
+            ? cm
+            : null;
       }
 
+      /*
+       * Preserve the existing database
+       * column names.
+       */
       const profileData = {
         id: user.id,
 
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
+        first_name:
+          firstName.trim(),
 
-        training_type: trainingType,
+        last_name:
+          lastName.trim(),
+
+        training_type:
+          trainingType,
 
         fitness_level:
           level || 'intermediate',
@@ -833,7 +803,9 @@ export default function Onboarding() {
           gender || null,
 
         weight_lbs:
-          weightInLbs,
+          Number.isFinite(parsedWeight)
+            ? parsedWeight
+            : null,
 
         height_inches:
           heightInches,
@@ -854,7 +826,7 @@ export default function Onboarding() {
       );
 
       console.log(
-        '[ONBOARDING] PROFILE UPSERT START:',
+        '[ONBOARDING] Saving profile:',
         profileData
       );
 
@@ -870,7 +842,7 @@ export default function Onboarding() {
         );
 
       console.log(
-        '[ONBOARDING] PROFILE UPSERT RETURNED:',
+        '[ONBOARDING] Profile save response:',
         profileError
       );
 
@@ -883,9 +855,9 @@ export default function Onboarding() {
         'Profile saved. Preparing your program…'
       );
 
-      /* ========================================================
-         4. PROMPT DATA
-      ======================================================== */
+      /* ======================================================
+         PROMPT DATA
+      ====================================================== */
 
       const promptData = {
         gender,
@@ -895,23 +867,26 @@ export default function Onboarding() {
         heightFt,
         heightIn,
         unit,
+
         currentSkills,
         goalDescription,
         timeframe,
+
         equipment,
         requirements,
+
         fitnessGoals,
         weightGoals,
       };
 
       console.log(
-        '[ONBOARDING] PROMPT DATA READY:',
+        '[ONBOARDING] Prompt data:',
         promptData
       );
 
-      /* ========================================================
-         5. PROGRAM STRUCTURE
-      ======================================================== */
+      /* ======================================================
+         STEP 4 — PROGRAM STRUCTURE
+      ====================================================== */
 
       setGenerationStage(
         22,
@@ -928,39 +903,69 @@ export default function Onboarding() {
         '[ONBOARDING] STRUCTURE PROMPT CREATED.'
       );
 
-      const structureResult =
-        await invokeWorkoutGeneration(
-          'structure',
-          structurePrompt,
+      console.log(
+        '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
+      );
+
+      console.log(
+        '[ONBOARDING] Function payload type: structure'
+      );
+
+      const structureResponse =
+        await supabase.functions.invoke(
+          'workout-generation',
           {
-            type: 'object',
-            additionalProperties: true,
-            properties: {
-              program_name: {
-                type: 'string',
-              },
+            body: {
+              type: 'structure',
 
-              duration_weeks: {
-                type: 'number',
-              },
+              prompt:
+                structurePrompt,
 
-              macrocycle: {
+              schema: {
                 type: 'object',
-                additionalProperties: true,
-              },
 
-              mesocycles: {
-                type: 'array',
+                additionalProperties:
+                  false,
+
+                properties: {
+                  program_name: {
+                    type: 'string',
+                  },
+
+                  duration_weeks: {
+                    type: 'number',
+                  },
+
+                  macrocycle: {
+                    type: 'object',
+                    additionalProperties:
+                      true,
+                  },
+
+                  mesocycles: {
+                    type: 'array',
+                  },
+                },
+
+                required: [
+                  'program_name',
+                  'duration_weeks',
+                  'macrocycle',
+                  'mesocycles',
+                ],
               },
             },
+          }
+        );
 
-            required: [
-              'program_name',
-              'duration_weeks',
-              'macrocycle',
-              'mesocycles',
-            ],
-          },
+      console.log(
+        '[ONBOARDING] STRUCTURE FUNCTION RETURNED:',
+        structureResponse
+      );
+
+      const structureResult =
+        normalizeFunctionResponse(
+          structureResponse,
           'workout-generation / structure'
         );
 
@@ -971,7 +976,8 @@ export default function Onboarding() {
 
       if (
         !structureResult ||
-        typeof structureResult !== 'object'
+        typeof structureResult !==
+          'object'
       ) {
         throw new Error(
           'AI returned an invalid program structure.'
@@ -993,24 +999,25 @@ export default function Onboarding() {
 
       setGenerationStage(
         30,
-        'Program structure complete.'
+        `Program structure complete — ${mesocycles.length} training phase${
+          mesocycles.length === 1
+            ? ''
+            : 's'
+        } found.`
       );
 
-      console.log(
-        '[ONBOARDING] TOTAL TRAINING PHASES:',
-        mesocycles.length
-      );
-
-      /* ========================================================
-         6. MICROCYCLES
-      ======================================================== */
+      /* ======================================================
+         STEP 5 — MICROCYCLES
+      ====================================================== */
 
       const allMicrocycles = [];
 
       const microcycleStart = 30;
       const microcycleEnd = 85;
+
       const microcycleRange =
-        microcycleEnd - microcycleStart;
+        microcycleEnd -
+        microcycleStart;
 
       for (
         let index = 0;
@@ -1022,40 +1029,38 @@ export default function Onboarding() {
 
         const phaseName =
           meso?.name ||
-          'Training phase ' + (index + 1);
+          `training phase ${
+            index + 1
+          }`;
 
-        /*
-         * Percentage BEFORE the current phase starts.
-         *
-         * It intentionally stays here while Supabase/AI
-         * is processing this phase.
-         */
+        const completedBefore =
+          index;
+
         const progressBefore =
           microcycleStart +
-          (index / mesocycles.length) *
+          (completedBefore /
+            mesocycles.length) *
             microcycleRange;
 
         setGenerationStage(
-          progressBefore,
-          'Building ' +
-            phaseName +
-            '…'
+          Math.round(
+            progressBefore
+          ),
+          `Building ${phaseName}…`
         );
 
         console.log(
-          '[ONBOARDING] ========================================'
+          '------------------------------------------------'
         );
 
         console.log(
-          '[ONBOARDING] MICROCYCLE START:',
-          index + 1,
-          'of',
-          mesocycles.length
+          `[ONBOARDING] MICROcycle ${
+            index + 1
+          }/${mesocycles.length}`
         );
 
         console.log(
-          '[ONBOARDING] PHASE:',
-          phaseName
+          `[ONBOARDING] Phase: ${phaseName}`
         );
 
         const microPrompt =
@@ -1066,29 +1071,71 @@ export default function Onboarding() {
             meso
           );
 
-        const microResult =
-          await invokeWorkoutGeneration(
-            'microcycle',
-            microPrompt,
+        console.log(
+          `[ONBOARDING] Microcycle prompt ${
+            index + 1
+          } created.`
+        );
+
+        console.log(
+          '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
+        );
+
+        console.log(
+          `[ONBOARDING] Function payload type: microcycle (${
+            index + 1
+          }/${mesocycles.length})`
+        );
+
+        const microResponse =
+          await supabase.functions.invoke(
+            'workout-generation',
             {
-              type: 'object',
-              additionalProperties: true,
-              properties: {
-                microcycles: {
-                  type: 'array',
+              body: {
+                type: 'microcycle',
+
+                prompt:
+                  microPrompt,
+
+                schema: {
+                  type: 'object',
+
+                  additionalProperties:
+                    false,
+
+                  properties: {
+                    microcycles: {
+                      type: 'array',
+                    },
+                  },
+
+                  required: [
+                    'microcycles',
+                  ],
                 },
               },
-              required: [
-                'microcycles',
-              ],
-            },
-            'workout-generation / microcycle ' +
-              (index + 1)
+            }
           );
 
         console.log(
-          '[ONBOARDING] MICROCYLCE RESULT:',
-          index + 1,
+          `[ONBOARDING] MICROcycle ${
+            index + 1
+          } FUNCTION RETURNED:`,
+          microResponse
+        );
+
+        const microResult =
+          normalizeFunctionResponse(
+            microResponse,
+            `workout-generation / microcycle ${
+              index + 1
+            }`
+          );
+
+        console.log(
+          `[ONBOARDING] MICROcycle ${
+            index + 1
+          } RESULT:`,
           microResult
         );
 
@@ -1103,9 +1150,7 @@ export default function Onboarding() {
           !generatedMicrocycles.length
         ) {
           throw new Error(
-            'AI returned no workouts for ' +
-              phaseName +
-              '.'
+            `AI returned no workouts for ${phaseName}.`
           );
         }
 
@@ -1114,34 +1159,36 @@ export default function Onboarding() {
         );
 
         /*
-         * ONLY after this operation has actually completed
-         * successfully do we advance the percentage.
+         * Only update progress after the
+         * actual generation completed.
          */
         const completed =
           index + 1;
 
         const completedProgress =
           microcycleStart +
-          (completed / mesocycles.length) *
+          (completed /
+            mesocycles.length) *
             microcycleRange;
 
         setGenerationStage(
-          completedProgress,
-          phaseName +
-            ' complete (' +
-            completed +
-            '/' +
-            mesocycles.length +
-            ').'
+          Math.round(
+            completedProgress
+          ),
+          `${phaseName} complete (${completed}/${mesocycles.length}).`
         );
 
         console.log(
-          '[ONBOARDING] MICROCYCLE COMPLETE:',
-          index + 1,
-          'of',
-          mesocycles.length
+          `[ONBOARDING] MICROcycle ${
+            index + 1
+          } COMPLETE.`
         );
       }
+
+      console.log(
+        '[ONBOARDING] ALL MICROCYCLES:',
+        allMicrocycles
+      );
 
       if (!allMicrocycles.length) {
         throw new Error(
@@ -1149,14 +1196,9 @@ export default function Onboarding() {
         );
       }
 
-      console.log(
-        '[ONBOARDING] ALL MICROCYCLES GENERATED:',
-        allMicrocycles.length
-      );
-
-      /* ========================================================
-         7. SAVE FINAL PROGRAM
-      ======================================================== */
+      /* ======================================================
+         STEP 6 — SAVE PROGRAM
+      ====================================================== */
 
       setGenerationStage(
         90,
@@ -1201,8 +1243,12 @@ export default function Onboarding() {
       };
 
       console.log(
-        '[ONBOARDING] PROGRAM INSERT START:',
+        '[ONBOARDING] FINAL PROGRAM PAYLOAD:',
         programPayload
+      );
+
+      console.log(
+        '[ONBOARDING] Saving workout program to Supabase...'
       );
 
       const {
@@ -1210,16 +1256,16 @@ export default function Onboarding() {
         error: programError,
       } = await supabase
         .from('workout_programs')
-        .insert(programPayload)
+        .insert(
+          programPayload
+        )
         .select()
         .single();
 
       console.log(
-        '[ONBOARDING] PROGRAM INSERT RETURNED:',
-        {
-          savedProgram,
-          programError,
-        }
+        '[ONBOARDING] PROGRAM SAVE RESPONSE:',
+        savedProgram,
+        programError
       );
 
       if (programError) {
@@ -1233,56 +1279,42 @@ export default function Onboarding() {
       }
 
       setGenerationStage(
-        93,
-        'Program saved successfully.'
+        95,
+        'Program saved successfully. Finishing up…'
       );
 
-      /* ========================================================
-         8. CACHE REFRESH
-      ======================================================== */
+      /* ======================================================
+         STEP 7 — CACHE REFRESH
+      ====================================================== */
 
       console.log(
-        '[ONBOARDING] CACHE REFRESH START'
+        '[ONBOARDING] Refreshing application data...'
       );
 
       try {
         await queryClientInstance.invalidateQueries();
-
-        console.log(
-          '[ONBOARDING] CACHE REFRESH COMPLETE'
-        );
-
-        setGenerationStage(
-          97,
-          'Finishing up your personalized program…'
-        );
       } catch (cacheError) {
         console.warn(
-          '[ONBOARDING] CACHE REFRESH WARNING:',
+          '[ONBOARDING] Cache refresh warning:',
           cacheError
-        );
-
-        /*
-         * Cache refresh is not required for program creation
-         * to be successful.
-         */
-        setGenerationStage(
-          97,
-          'Program saved. Finishing up…'
         );
       }
 
-      /* ========================================================
-         9. COMPLETE
-      ======================================================== */
+      /* ======================================================
+         COMPLETE
+      ====================================================== */
 
       setGenerationStage(
         100,
         'Your personalized program is ready!'
       );
 
+      toast.success(
+        'Your personalized program is ready!'
+      );
+
       console.log(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       console.log(
@@ -1290,44 +1322,30 @@ export default function Onboarding() {
       );
 
       console.log(
-        '[ONBOARDING] SAVED PROGRAM ID:',
-        savedProgram.id
-      );
-
-      console.log(
-        '[ONBOARDING] ========================================'
-      );
-
-      toast.success(
-        'Your personalized program is ready!'
+        '================================================'
       );
 
       /*
-       * Let the user actually see 100%.
+       * Let React render the 100% state.
        */
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 800);
-      });
+      await sleep(800);
 
       navigate('/', {
         replace: true,
       });
     } catch (error) {
       console.error(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       console.error(
         '[ONBOARDING] PROGRAM GENERATION FAILED'
       );
 
-      console.error(
-        '[ONBOARDING] ERROR:',
-        error
-      );
+      console.error(error);
 
       console.error(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       const message =
@@ -1336,15 +1354,19 @@ export default function Onboarding() {
           'Failed to generate your program. Please try again.'
         );
 
-      setGenerationError(message);
-
       setLoading(false);
       setProgress(0);
       setLoadingPhase('');
 
-      generationStartedRef.current = false;
+      generationStartedRef.current =
+        false;
 
       toast.error(message);
+
+      console.error(
+        '[ONBOARDING] USER-FACING ERROR:',
+        message
+      );
     }
   };
 
@@ -1354,33 +1376,48 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col safe-top safe-bottom">
+      {/* ======================================================
+          PROGRESS INDICATOR
+      ====================================================== */}
+
       <div className="px-6 pt-4 pb-4">
         <div className="flex items-center gap-2 mb-2">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <div
-              key={index}
-              className={cn(
-                'h-1 rounded-full flex-1 transition-all duration-500',
-                index <= step
-                  ? 'bg-primary'
-                  : 'bg-muted'
-              )}
-            />
-          ))}
+          {[0, 1, 2, 3, 4].map(
+            (index) => (
+              <div
+                key={index}
+                className={cn(
+                  'h-1 rounded-full flex-1 transition-all duration-500',
+                  index <= step
+                    ? 'bg-primary'
+                    : 'bg-muted'
+                )}
+              />
+            )
+          )}
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        {/* ======================================================
+        {/* ====================================================
             STEP 0
-        ====================================================== */}
+        ==================================================== */}
 
         {step === 0 && (
           <motion.div
             key="welcome"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+            initial={{
+              opacity: 0,
+              x: 50,
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+            }}
+            exit={{
+              opacity: 0,
+              x: -50,
+            }}
             className="flex-1 flex flex-col px-6"
           >
             <h1 className="font-heading text-4xl font-bold mb-2 tracking-tight">
@@ -1411,7 +1448,9 @@ export default function Onboarding() {
                   placeholder="e.g. Alex"
                   value={firstName}
                   onChange={(event) =>
-                    setFirstName(event.target.value)
+                    setFirstName(
+                      event.target.value
+                    )
                   }
                   className="h-14 text-lg rounded-2xl"
                 />
@@ -1426,7 +1465,9 @@ export default function Onboarding() {
                   placeholder="e.g. Johnson"
                   value={lastName}
                   onChange={(event) =>
-                    setLastName(event.target.value)
+                    setLastName(
+                      event.target.value
+                    )
                   }
                   className="h-14 text-lg rounded-2xl"
                 />
@@ -1440,7 +1481,9 @@ export default function Onboarding() {
 
                 <CountrySelect
                   value={country}
-                  onChange={handleCountryChange}
+                  onChange={
+                    handleCountryChange
+                  }
                 />
               </div>
 
@@ -1470,23 +1513,31 @@ export default function Onboarding() {
                     },
                     {
                       value: 'imperial',
-                      label: 'Imperial (lbs, ft)',
+                      label:
+                        'Imperial (lbs, ft)',
                     },
-                  ].map(({ value, label }) => (
-                    <button
-                      type="button"
-                      key={value}
-                      onClick={() => setUnit(value)}
-                      className={cn(
-                        'h-11 rounded-2xl border-2 text-sm font-semibold transition-all',
-                        unit === value
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  ].map(
+                    ({
+                      value,
+                      label,
+                    }) => (
+                      <button
+                        type="button"
+                        key={value}
+                        onClick={() =>
+                          setUnit(value)
+                        }
+                        className={cn(
+                          'h-11 rounded-2xl border-2 text-sm font-semibold transition-all',
+                          unit === value
+                            ? 'border-primary bg-primary/10 text-foreground'
+                            : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -1497,7 +1548,9 @@ export default function Onboarding() {
                 !firstName.trim() ||
                 !country
               }
-              onClick={() => setStep(1)}
+              onClick={() =>
+                setStep(1)
+              }
               className="w-full h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold mb-8 mt-4 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
             >
               Get Started
@@ -1506,16 +1559,25 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ======================================================
+        {/* ====================================================
             STEP 1
-        ====================================================== */}
+        ==================================================== */}
 
         {step === 1 && (
           <motion.div
             key="training-type"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+            initial={{
+              opacity: 0,
+              x: 50,
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+            }}
+            exit={{
+              opacity: 0,
+              x: -50,
+            }}
             className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
@@ -1538,7 +1600,9 @@ export default function Onboarding() {
               <button
                 type="button"
                 className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
-                onClick={() => setStep(0)}
+                onClick={() =>
+                  setStep(0)
+                }
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -1547,7 +1611,9 @@ export default function Onboarding() {
                 type="button"
                 className="flex-1 h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
                 disabled={!trainingType}
-                onClick={() => setStep(2)}
+                onClick={() =>
+                  setStep(2)
+                }
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
@@ -1556,16 +1622,25 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ======================================================
+        {/* ====================================================
             STEP 2
-        ====================================================== */}
+        ==================================================== */}
 
         {step === 2 && (
           <motion.div
             key="bodystats"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+            initial={{
+              opacity: 0,
+              x: 50,
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+            }}
+            exit={{
+              opacity: 0,
+              x: -50,
+            }}
             className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
@@ -1584,22 +1659,29 @@ export default function Onboarding() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-3">
-                  {['male', 'female'].map(
+                  {[
+                    'male',
+                    'female',
+                  ].map(
                     (genderOption) => (
                       <button
                         type="button"
                         key={genderOption}
                         onClick={() =>
-                          setGender(genderOption)
+                          setGender(
+                            genderOption
+                          )
                         }
                         className={cn(
                           'h-12 rounded-2xl border-2 font-semibold text-sm capitalize transition-all',
-                          gender === genderOption
+                          gender ===
+                            genderOption
                             ? 'border-primary bg-primary/10 text-foreground'
                             : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
                         )}
                       >
-                        {genderOption === 'male'
+                        {genderOption ===
+                        'male'
                           ? '♂ Male'
                           : '♀ Female'}
                       </button>
@@ -1621,7 +1703,9 @@ export default function Onboarding() {
                     placeholder="e.g. 24"
                     value={age}
                     onChange={(event) =>
-                      setAge(event.target.value)
+                      setAge(
+                        event.target.value
+                      )
                     }
                     className="h-12 text-base"
                   />
@@ -1647,7 +1731,9 @@ export default function Onboarding() {
                     }
                     value={weightLbs}
                     onChange={(event) =>
-                      setWeightLbs(event.target.value)
+                      setWeightLbs(
+                        event.target.value
+                      )
                     }
                     className="h-12 text-base"
                   />
@@ -1666,7 +1752,9 @@ export default function Onboarding() {
                     placeholder="Height in cm (e.g. 178)"
                     value={heightFt}
                     onChange={(event) =>
-                      setHeightFt(event.target.value)
+                      setHeightFt(
+                        event.target.value
+                      )
                     }
                     className="h-12 text-base"
                   />
@@ -1679,7 +1767,9 @@ export default function Onboarding() {
                       placeholder="Feet (e.g. 5)"
                       value={heightFt}
                       onChange={(event) =>
-                        setHeightFt(event.target.value)
+                        setHeightFt(
+                          event.target.value
+                        )
                       }
                       className="h-12 text-base"
                     />
@@ -1691,7 +1781,9 @@ export default function Onboarding() {
                       placeholder="Inches (e.g. 10)"
                       value={heightIn}
                       onChange={(event) =>
-                        setHeightIn(event.target.value)
+                        setHeightIn(
+                          event.target.value
+                        )
                       }
                       className="h-12 text-base"
                     />
@@ -1713,20 +1805,28 @@ export default function Onboarding() {
                         iconName,
                       }) => {
                         const GoalIcon =
-                          GOAL_ICONS[iconName] ||
+                          GOAL_ICONS[
+                            iconName
+                          ] ||
                           Dumbbell;
 
                         const selected =
-                          fitnessGoals.includes(value);
+                          fitnessGoals.includes(
+                            value
+                          );
 
                         return (
                           <button
                             type="button"
                             key={value}
                             onClick={() =>
-                              toggleGoal(value)
+                              toggleGoal(
+                                value
+                              )
                             }
-                            aria-pressed={selected}
+                            aria-pressed={
+                              selected
+                            }
                             className={cn(
                               'flex items-center gap-2 p-3 rounded-2xl border-2 text-left transition-all',
                               selected
@@ -1752,7 +1852,9 @@ export default function Onboarding() {
               <button
                 type="button"
                 className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
-                onClick={() => setStep(1)}
+                onClick={() =>
+                  setStep(1)
+                }
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -1763,9 +1865,12 @@ export default function Onboarding() {
                 disabled={
                   !gender ||
                   (hasSkills &&
-                    fitnessGoals.length === 0)
+                    fitnessGoals.length ===
+                      0)
                 }
-                onClick={() => setStep(3)}
+                onClick={() =>
+                  setStep(3)
+                }
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
@@ -1774,16 +1879,25 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ======================================================
+        {/* ====================================================
             STEP 3
-        ====================================================== */}
+        ==================================================== */}
 
         {step === 3 && (
           <motion.div
             key="step3"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+            initial={{
+              opacity: 0,
+              x: 50,
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+            }}
+            exit={{
+              opacity: 0,
+              x: -50,
+            }}
             className="flex-1 flex flex-col px-6"
           >
             {hasSkills && (
@@ -1806,11 +1920,15 @@ export default function Onboarding() {
                       icon: Icon,
                       placeholder,
                     }) => (
-                      <div key={value}>
+                      <div
+                        key={value}
+                      >
                         <button
                           type="button"
                           onClick={() =>
-                            setLevel(value)
+                            setLevel(
+                              value
+                            )
                           }
                           className={cn(
                             'w-full p-4 rounded-2xl border-2 text-left transition-all',
@@ -1823,7 +1941,8 @@ export default function Onboarding() {
                             <div
                               className={cn(
                                 'w-10 h-10 rounded-xl flex items-center justify-center',
-                                level === value
+                                level ===
+                                  value
                                   ? 'bg-primary text-primary-foreground'
                                   : 'bg-muted text-muted-foreground'
                               )}
@@ -1843,16 +1962,25 @@ export default function Onboarding() {
                           </div>
                         </button>
 
-                        {level === value && (
+                        {level ===
+                          value && (
                           <div className="mt-1.5 px-1">
                             <Textarea
-                              value={currentSkills}
-                              onChange={(event) =>
+                              value={
+                                currentSkills
+                              }
+                              onChange={(
+                                event
+                              ) =>
                                 setCurrentSkills(
-                                  event.target.value
+                                  event
+                                    .target
+                                    .value
                                 )
                               }
-                              placeholder={placeholder}
+                              placeholder={
+                                placeholder
+                              }
                               className="text-sm resize-none min-h-[72px] rounded-2xl border-primary/40 bg-primary/5 focus:border-primary leading-relaxed"
                             />
 
@@ -1881,20 +2009,28 @@ export default function Onboarding() {
                           iconName,
                         }) => {
                           const GoalIcon =
-                            GOAL_ICONS[iconName] ||
+                            GOAL_ICONS[
+                              iconName
+                            ] ||
                             Dumbbell;
 
                           const selected =
-                            weightGoals.includes(value);
+                            weightGoals.includes(
+                              value
+                            );
 
                           return (
                             <button
                               type="button"
                               key={value}
                               onClick={() =>
-                                toggleWeightGoal(value)
+                                toggleWeightGoal(
+                                  value
+                                )
                               }
-                              aria-pressed={selected}
+                              aria-pressed={
+                                selected
+                              }
                               className={cn(
                                 'flex items-center gap-2 p-3 rounded-2xl border-2 text-left transition-all',
                                 selected
@@ -1937,20 +2073,28 @@ export default function Onboarding() {
                       iconName,
                     }) => {
                       const GoalIcon =
-                        GOAL_ICONS[iconName] ||
+                        GOAL_ICONS[
+                          iconName
+                        ] ||
                         Dumbbell;
 
                       const selected =
-                        weightGoals.includes(value);
+                        weightGoals.includes(
+                          value
+                        );
 
                       return (
                         <button
                           type="button"
                           key={value}
                           onClick={() =>
-                            toggleWeightGoal(value)
+                            toggleWeightGoal(
+                              value
+                            )
                           }
-                          aria-pressed={selected}
+                          aria-pressed={
+                            selected
+                          }
                           className={cn(
                             'flex items-center gap-2 p-4 rounded-2xl border-2 text-left transition-all',
                             selected
@@ -1975,7 +2119,9 @@ export default function Onboarding() {
               <button
                 type="button"
                 className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
-                onClick={() => setStep(2)}
+                onClick={() =>
+                  setStep(2)
+                }
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -1984,7 +2130,9 @@ export default function Onboarding() {
                 type="button"
                 className="flex-1 h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
                 disabled={!step3Valid}
-                onClick={() => setStep(4)}
+                onClick={() =>
+                  setStep(4)
+                }
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
@@ -1993,16 +2141,25 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ======================================================
+        {/* ====================================================
             STEP 4
-        ====================================================== */}
+        ==================================================== */}
 
         {step === 4 && (
           <motion.div
             key="step4"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
+            initial={{
+              opacity: 0,
+              x: 50,
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+            }}
+            exit={{
+              opacity: 0,
+              x: -50,
+            }}
             className="flex-1 flex flex-col px-6"
           >
             <div className="flex items-center gap-2 mb-1">
@@ -2010,10 +2167,14 @@ export default function Onboarding() {
 
               <h2 className="font-heading text-2xl font-bold">
                 {hasSkills
-                  ? 'Tell us your goals, ' +
-                    (firstName || 'Athlete')
-                  : 'Final details, ' +
-                    (firstName || 'Athlete')}
+                  ? `Tell us your goals, ${
+                      firstName ||
+                      'Athlete'
+                    }`
+                  : `Final details, ${
+                      firstName ||
+                      'Athlete'
+                    }`}
               </h2>
             </div>
 
@@ -2027,9 +2188,13 @@ export default function Onboarding() {
               {hasSkills && (
                 <>
                   <Textarea
-                    value={goalDescription}
+                    value={
+                      goalDescription
+                    }
                     onChange={(event) =>
-                      setGoalDescription(event.target.value)
+                      setGoalDescription(
+                        event.target.value
+                      )
                     }
                     placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
                     className="min-h-[140px] text-sm resize-none bg-card border-border focus:border-primary rounded-2xl p-4 leading-relaxed"
@@ -2044,7 +2209,9 @@ export default function Onboarding() {
                     <Textarea
                       value={timeframe}
                       onChange={(event) =>
-                        setTimeframe(event.target.value)
+                        setTimeframe(
+                          event.target.value
+                        )
                       }
                       placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
                       className="min-h-[60px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
@@ -2063,7 +2230,9 @@ export default function Onboarding() {
                   <p className="text-sm text-muted-foreground">
                     You selected:{' '}
                     <span className="font-semibold text-foreground">
-                      {weightGoals.join(', ') ||
+                      {weightGoals.join(
+                        ', '
+                      ) ||
                         'General fitness'}
                     </span>
                   </p>
@@ -2073,13 +2242,17 @@ export default function Onboarding() {
               <div className="bg-muted/50 rounded-2xl p-4 border border-border">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   🏋️ Available equipment{' '}
-                  <span className="text-destructive">*</span>
+                  <span className="text-destructive">
+                    *
+                  </span>
                 </p>
 
                 <Textarea
                   value={equipment}
                   onChange={(event) =>
-                    setEquipment(event.target.value)
+                    setEquipment(
+                      event.target.value
+                    )
                   }
                   placeholder={
                     hasSkills
@@ -2091,8 +2264,8 @@ export default function Onboarding() {
                 />
 
                 <p className="text-[10px] text-muted-foreground mt-1.5">
-                  List everything you have access to — this
-                  is required.
+                  List everything you have access to —
+                  this is required.
                 </p>
               </div>
 
@@ -2102,9 +2275,13 @@ export default function Onboarding() {
                 </p>
 
                 <Textarea
-                  value={requirements}
+                  value={
+                    requirements
+                  }
                   onChange={(event) =>
-                    setRequirements(event.target.value)
+                    setRequirements(
+                      event.target.value
+                    )
                   }
                   placeholder='e.g. "I can train 4 days a week, about 60 min per session. I want to focus on my chest and shoulders."'
                   className="min-h-[80px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
@@ -2120,7 +2297,7 @@ export default function Onboarding() {
             </div>
 
             {/* ==================================================
-                GENERATION STATUS
+                GENERATION AREA
             ================================================== */}
 
             {loading && (
@@ -2136,7 +2313,10 @@ export default function Onboarding() {
                   </div>
 
                   <span className="text-sm font-bold text-primary flex-shrink-0">
-                    {Math.round(progress)}%
+                    {Math.round(
+                      progress
+                    )}
+                    %
                   </span>
                 </div>
 
@@ -2144,35 +2324,20 @@ export default function Onboarding() {
                   <div
                     className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
                     style={{
-                      width:
-                        Math.max(
-                          0,
-                          Math.min(100, progress)
-                        ) + '%',
+                      width: `${Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          progress
+                        )
+                      )}%`,
                     }}
                   />
                 </div>
 
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  The percentage advances only when a
-                  generation step actually completes.
-                </p>
-              </div>
-            )}
-
-            {generationError && !loading && (
-              <div className="mt-5 mb-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-                <p className="text-sm font-semibold text-destructive mb-1">
-                  Program generation failed
-                </p>
-
-                <p className="text-xs text-muted-foreground break-words">
-                  {generationError}
-                </p>
-
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  Check the browser console for the detailed
-                  Supabase request log.
+                  Progress advances when each generation
+                  stage actually completes.
                 </p>
               </div>
             )}
@@ -2182,7 +2347,9 @@ export default function Onboarding() {
                 type="button"
                 className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
-                onClick={() => setStep(3)}
+                onClick={() =>
+                  setStep(3)
+                }
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -2195,10 +2362,12 @@ export default function Onboarding() {
                   loading ||
                   !generateValid
                 }
-                onClick={handleGenerate}
+                onClick={
+                  handleGenerate
+                }
                 onPointerDown={() => {
                   console.log(
-                    '[ONBOARDING] BUILD BUTTON POINTER DOWN'
+                    '[ONBOARDING] Build button pointer down.'
                   );
                 }}
                 className={cn(
@@ -2214,29 +2383,31 @@ export default function Onboarding() {
 
                     <span>
                       Building…{' '}
-                      {Math.round(progress)}%
+                      {Math.round(
+                        progress
+                      )}
+                      %
                     </span>
                   </span>
                 ) : (
                   <>
-                    {generationError
-                      ? 'Try Again'
-                      : 'Build My Program'}
-
+                    Build My Program
                     <Sparkles className="ml-2 w-5 h-5" />
                   </>
                 )}
               </button>
             </div>
 
-            {!loading && !generateValid && (
-              <p className="text-xs text-muted-foreground text-center mb-6">
-                {hasSkills &&
-                goalDescription.trim().length < 10
-                  ? 'Add a little more detail about your goals to continue.'
-                  : 'Enter your available equipment to continue.'}
-              </p>
-            )}
+            {!loading &&
+              !generateValid && (
+                <p className="text-xs text-muted-foreground text-center mb-6">
+                  {hasSkills &&
+                  goalDescription.trim()
+                    .length < 10
+                    ? 'Add a little more detail about your goals to continue.'
+                    : 'Enter your available equipment to continue.'}
+                </p>
+              )}
           </motion.div>
         )}
       </AnimatePresence>
