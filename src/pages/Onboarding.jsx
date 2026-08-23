@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+```jsx
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { queryClientInstance } from '@/lib/query-client';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronRight,
@@ -20,22 +17,22 @@ import {
   PersonStanding,
   Globe,
 } from 'lucide-react';
-import {
-  COUNTRIES,
-  LANGUAGES,
-  getCountryDefaults,
-} from '@/lib/countries';
+import { toast } from 'sonner';
+
+import { queryClientInstance } from '@/lib/query-client';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { TrainingTypeSelect } from '@/components/onboarding/TrainingTypeSelect';
+import { COUNTRIES, LANGUAGES, getCountryDefaults } from '@/lib/countries';
 import { useAppSettings } from '@/lib/AppSettingsContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
-import TrainingTypeSelect from '@/components/onboarding/TrainingTypeSelect';
 import {
   CALISTHENICS_GOALS,
   WEIGHT_GOALS,
   buildStructurePrompt,
   buildMicrocyclePrompt,
 } from '@/lib/trainingTypes';
-import { toast } from 'sonner';
 
 const levels = [
   {
@@ -83,9 +80,100 @@ const GOAL_ICONS = {
   Sparkles,
 };
 
-/* ---------------------------------------------------------
-   Generic searchable select
---------------------------------------------------------- */
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function getErrorMessage(error, fallback = 'Something went wrong.') {
+  if (!error) return fallback;
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (error?.message) {
+    return error.message;
+  }
+
+  if (error?.error?.message) {
+    return error.error.message;
+  }
+
+  if (error?.details) {
+    return error.details;
+  }
+
+  if (error?.hint) {
+    return error.hint;
+  }
+
+  try {
+    const stringified = JSON.stringify(error);
+
+    if (stringified && stringified !== '{}') {
+      return stringified;
+    }
+  } catch {
+    // Ignore JSON serialization errors.
+  }
+
+  return fallback;
+}
+
+function normalizeFunctionResponse(response, functionName) {
+  console.log(
+    `[ONBOARDING] ${functionName} raw response:`,
+    response
+  );
+
+  if (!response) {
+    throw new Error(
+      `${functionName} returned no response.`
+    );
+  }
+
+  if (response.error) {
+    throw new Error(
+      getErrorMessage(
+        response.error,
+        `${functionName} returned an error.`
+      )
+    );
+  }
+
+  if (response.data == null) {
+    throw new Error(
+      `${functionName} returned an empty response.`
+    );
+  }
+
+  const data = response.data;
+
+  if (data?.success === false) {
+    throw new Error(
+      getErrorMessage(
+        data?.error || data?.message,
+        `${functionName} failed.`
+      )
+    );
+  }
+
+  return data?.result ?? data;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+/* ============================================================
+   SEARCH SELECT
+============================================================ */
 
 function SearchSelect({
   value,
@@ -96,23 +184,27 @@ function SearchSelect({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const filtered = options
-    .filter((option) =>
-      option
-        .toLowerCase()
-        .includes(search.toLowerCase())
-    )
-    .slice(0, 200);
+  const filtered = useMemo(() => {
+    return options
+      .filter((option) =>
+        option
+          .toLowerCase()
+          .includes(search.toLowerCase())
+      )
+      .slice(0, 200);
+  }, [options, search]);
+
+  useEffect(() => {
+    if (!open) {
+      setSearch('');
+    }
+  }, [open]);
 
   return (
     <div className="relative">
       <button
         type="button"
-        disabled={false}
-        onClick={() => {
-          setOpen((current) => !current);
-          setSearch('');
-        }}
+        onClick={() => setOpen((current) => !current)}
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
@@ -131,63 +223,53 @@ function SearchSelect({
       </button>
 
       {open && (
-        <>
-          <button
-            type="button"
-            aria-label="Close select"
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-
-          <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-2 border-b border-border">
-              <input
-                autoFocus
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-                placeholder="Search..."
-                className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div className="max-h-52 overflow-y-auto">
-              {filtered.map((option) => (
-                <button
-                  type="button"
-                  key={option}
-                  onClick={() => {
-                    onChange(option);
-                    setOpen(false);
-                    setSearch('');
-                  }}
-                  className={cn(
-                    'w-full px-4 py-2.5 text-sm text-left hover:bg-muted/80 transition-all',
-                    option === value &&
-                      'bg-primary/10 text-primary font-semibold'
-                  )}
-                >
-                  {option}
-                </button>
-              ))}
-
-              {filtered.length === 0 && (
-                <p className="px-4 py-3 text-xs text-muted-foreground">
-                  No results
-                </p>
-              )}
-            </div>
+        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="p-2 border-b border-border">
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search..."
+              className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
+            />
           </div>
-        </>
+
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.map((option) => (
+              <button
+                type="button"
+                key={option}
+                onClick={() => {
+                  onChange(option);
+                  setOpen(false);
+                }}
+                className={cn(
+                  'w-full px-4 py-2.5 text-sm text-left hover:bg-muted/80 transition-all',
+                  option === value &&
+                    'bg-primary/10 text-primary font-semibold'
+                )}
+              >
+                {option}
+              </button>
+            ))}
+
+            {filtered.length === 0 && (
+              <p className="px-4 py-3 text-xs text-muted-foreground">
+                No results
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-/* ---------------------------------------------------------
-   Country select
---------------------------------------------------------- */
+/* ============================================================
+   COUNTRY SELECT
+============================================================ */
 
 function CountrySelect({
   value,
@@ -197,23 +279,22 @@ function CountrySelect({
   const [search, setSearch] = useState('');
 
   const selected = COUNTRIES.find(
-    (country) => country.code === value
+    (item) => item.code === value
   );
 
-  const filtered = COUNTRIES.filter((country) =>
-    country.name
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+  const filtered = useMemo(() => {
+    return COUNTRIES.filter((item) =>
+      item.name
+        .toLowerCase()
+        .includes(search.toLowerCase())
+    );
+  }, [search]);
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => {
-          setOpen((current) => !current);
-          setSearch('');
-        }}
+        onClick={() => setOpen((current) => !current)}
         className="w-full h-12 px-4 rounded-2xl border-2 border-border bg-card text-sm text-left flex items-center justify-between hover:border-muted-foreground/30 transition-all"
       >
         <span
@@ -223,8 +304,7 @@ function CountrySelect({
               : 'text-muted-foreground'
           }
         >
-          {selected?.name ||
-            'Select your country…'}
+          {selected?.name || 'Select your country…'}
         </span>
 
         <span className="text-muted-foreground text-xs">
@@ -233,377 +313,112 @@ function CountrySelect({
       </button>
 
       {open && (
-        <>
-          <button
-            type="button"
-            aria-label="Close country select"
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-
-          <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-2 border-b border-border">
-              <input
-                autoFocus
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-                placeholder="Search country..."
-                className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div className="max-h-52 overflow-y-auto">
-              {filtered.map((countryOption) => (
-                <button
-                  type="button"
-                  key={countryOption.code}
-                  onClick={() => {
-                    onChange(countryOption.code);
-                    setOpen(false);
-                    setSearch('');
-                  }}
-                  className={cn(
-                    'w-full px-4 py-2.5 text-sm text-left hover:bg-muted/80 transition-all',
-                    countryOption.code === value &&
-                      'bg-primary/10 text-primary font-semibold'
-                  )}
-                >
-                  {countryOption.name}
-                </button>
-              ))}
-
-              {filtered.length === 0 && (
-                <p className="px-4 py-3 text-xs text-muted-foreground">
-                  No results
-                </p>
-              )}
-            </div>
+        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="p-2 border-b border-border">
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search country..."
+              className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
+            />
           </div>
-        </>
+
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.map((countryOption) => (
+              <button
+                type="button"
+                key={countryOption.code}
+                onClick={() => {
+                  onChange(countryOption.code);
+                  setOpen(false);
+                  setSearch('');
+                }}
+                className={cn(
+                  'w-full px-4 py-2.5 text-sm text-left hover:bg-muted/80 transition-all',
+                  countryOption.code === value &&
+                    'bg-primary/10 text-primary font-semibold'
+                )}
+              >
+                {countryOption.name}
+              </button>
+            ))}
+
+            {filtered.length === 0 && (
+              <p className="px-4 py-3 text-xs text-muted-foreground">
+                No results
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-/* ---------------------------------------------------------
-   Error helpers
---------------------------------------------------------- */
-
-function getErrorMessage(error, fallback) {
-  if (!error) return fallback;
-
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  if (error.message) {
-    return error.message;
-  }
-
-  if (error.error) {
-    if (typeof error.error === 'string') {
-      return error.error;
-    }
-
-    if (error.error?.message) {
-      return error.error.message;
-    }
-  }
-
-  if (error.details) {
-    if (typeof error.details === 'string') {
-      return error.details;
-    }
-
-    if (error.details?.message) {
-      return error.details.message;
-    }
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return fallback;
-  }
-}
-
-/* ---------------------------------------------------------
-   Normalize Supabase Edge Function response
---------------------------------------------------------- */
-
-function normalizeFunctionResponse(response) {
-  console.log(
-    '[ONBOARDING] Raw Edge Function response:',
-    response
-  );
-
-  if (!response) {
-    throw new Error(
-      'No response was returned by workout-generation.'
-    );
-  }
-
-  /*
-   * supabase.functions.invoke() returns:
-   *
-   * {
-   *   data,
-   *   error
-   * }
-   *
-   * A function can also return { success: false, error: ... }
-   * inside data.
-   */
-
-  if (response.error) {
-    throw new Error(
-      getErrorMessage(
-        response.error,
-        'The workout-generation function returned an error.'
-      )
-    );
-  }
-
-  const data = response.data;
-
-  if (data == null) {
-    throw new Error(
-      'The workout-generation function returned no data.'
-    );
-  }
-
-  if (data.success === false) {
-    throw new Error(
-      getErrorMessage(
-        data.error || data.message,
-        'AI generation failed.'
-      )
-    );
-  }
-
-  /*
-   * Support all of these common response formats:
-   *
-   * { result: {...} }
-   * { data: {...} }
-   * {...}
-   */
-
-  if (
-    data.result !== undefined &&
-    data.result !== null
-  ) {
-    return data.result;
-  }
-
-  return data;
-}
-
-/* ---------------------------------------------------------
-   Invoke Edge Function with timeout + logging
---------------------------------------------------------- */
-
-async function invokeWorkoutGeneration(
-  body,
-  timeoutMs = 180000
-) {
-  console.log(
-    '[ONBOARDING] ========================================'
-  );
-
-  console.log(
-    '[ONBOARDING] SUPABASE FUNCTION INVOKE START'
-  );
-
-  console.log(
-    '[ONBOARDING] Function: workout-generation'
-  );
-
-  console.log(
-    '[ONBOARDING] Request type:',
-    body?.type
-  );
-
-  console.log(
-    '[ONBOARDING] Request body:',
-    body
-  );
-
-  console.log(
-    '[ONBOARDING] ========================================'
-  );
-
-  const timeoutPromise = new Promise(
-    (_, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            'The workout-generation request timed out after 3 minutes. Please check the Supabase Edge Function logs.'
-          )
-        );
-      }, timeoutMs);
-
-      /*
-       * Prevent Node-style timer retention where supported.
-       */
-      if (timer?.unref) {
-        timer.unref();
-      }
-    }
-  );
-
-  const invokePromise =
-    supabase.functions.invoke(
-      'workout-generation',
-      {
-        body,
-      }
-    );
-
-  let response;
-
-  try {
-    response = await Promise.race([
-      invokePromise,
-      timeoutPromise,
-    ]);
-  } catch (error) {
-    console.error(
-      '[ONBOARDING] SUPABASE FUNCTION INVOKE FAILED:',
-      error
-    );
-
-    throw error;
-  }
-
-  console.log(
-    '[ONBOARDING] SUPABASE FUNCTION INVOKE RESPONSE:',
-    response
-  );
-
-  if (response?.error) {
-    console.error(
-      '[ONBOARDING] SUPABASE FUNCTION RETURNED ERROR:',
-      response.error
-    );
-  } else {
-    console.log(
-      '[ONBOARDING] SUPABASE FUNCTION RETURNED SUCCESS'
-    );
-  }
-
-  return response;
-}
-
-/* ---------------------------------------------------------
-   Main onboarding page
---------------------------------------------------------- */
+/* ============================================================
+   MAIN ONBOARDING
+============================================================ */
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { updateSettings } =
-    useAppSettings();
+  const { updateSettings } = useAppSettings();
 
   const [step, setStep] = useState(0);
 
-  const [firstName, setFirstName] =
-    useState('');
-  const [lastName, setLastName] =
-    useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
 
-  const [country, setCountry] =
-    useState('');
-  const [language, setLanguage] =
-    useState('English');
-  const [unit, setUnit] =
-    useState('imperial');
+  const [country, setCountry] = useState('');
+  const [language, setLanguage] = useState('English');
+  const [unit, setUnit] = useState('imperial');
 
-  const [trainingType, setTrainingType] =
-    useState('');
-
-  const [level, setLevel] =
-    useState('');
+  const [trainingType, setTrainingType] = useState('');
+  const [level, setLevel] = useState('');
 
   const [goalDescription, setGoalDescription] =
     useState('');
 
-  const [timeframe, setTimeframe] =
-    useState('');
+  const [timeframe, setTimeframe] = useState('');
+  const [equipment, setEquipment] = useState('');
+  const [requirements, setRequirements] = useState('');
 
-  const [equipment, setEquipment] =
-    useState('');
+  const [age, setAge] = useState('');
+  const [weightLbs, setWeightLbs] = useState('');
 
-  const [requirements, setRequirements] =
-    useState('');
+  const [heightFt, setHeightFt] = useState('');
+  const [heightIn, setHeightIn] = useState('');
 
-  const [loading, setLoading] =
-    useState(false);
+  const [fitnessGoals, setFitnessGoals] = useState([]);
+  const [currentSkills, setCurrentSkills] = useState('');
+  const [gender, setGender] = useState('');
+  const [weightGoals, setWeightGoals] = useState([]);
 
-  /*
-   * IMPORTANT:
-   *
-   * This percentage represents COMPLETED workflow
-   * milestones. It does not pretend to estimate how
-   * quickly an AI request will finish.
-   */
-  const [progress, setProgress] =
-    useState(0);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [loadingPhase, setLoadingPhase] = useState('');
 
-  const [loadingPhase, setLoadingPhase] =
-    useState('');
-
-  const [age, setAge] =
-    useState('');
-
-  const [weightLbs, setWeightLbs] =
-    useState('');
-
-  const [heightFt, setHeightFt] =
-    useState('');
-
-  const [heightIn, setHeightIn] =
-    useState('');
-
-  const [fitnessGoals, setFitnessGoals] =
-    useState([]);
-
-  const [currentSkills, setCurrentSkills] =
-    useState('');
-
-  const [gender, setGender] =
-    useState('');
-
-  const [weightGoals, setWeightGoals] =
-    useState([]);
-
-  const generationStartedRef =
-    useRef(false);
+  const generationStartedRef = useRef(false);
 
   const hasSkills =
     trainingType === 'calisthenics' ||
-    trainingType ===
-      'weighted_calisthenics' ||
+    trainingType === 'weighted_calisthenics' ||
     trainingType === 'hybrid';
 
   const hasWeightGoals =
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
-  /* -------------------------------------------------------
-     Country defaults
-  ------------------------------------------------------- */
+  /* ==========================================================
+     COUNTRY
+  ========================================================== */
 
   const handleCountryChange = (code) => {
     setCountry(code);
 
-    const defaults =
-      getCountryDefaults(code);
+    const defaults = getCountryDefaults(code);
 
     if (defaults) {
       setLanguage(defaults.language);
@@ -611,16 +426,14 @@ export default function Onboarding() {
     }
   };
 
-  /* -------------------------------------------------------
-     Goals
-  ------------------------------------------------------- */
+  /* ==========================================================
+     GOALS
+  ========================================================== */
 
   const toggleGoal = (value) => {
     setFitnessGoals((previous) =>
       previous.includes(value)
-        ? previous.filter(
-            (goal) => goal !== value
-          )
+        ? previous.filter((goal) => goal !== value)
         : [...previous, value]
     );
   };
@@ -628,22 +441,29 @@ export default function Onboarding() {
   const toggleWeightGoal = (value) => {
     setWeightGoals((previous) =>
       previous.includes(value)
-        ? previous.filter(
-            (goal) => goal !== value
-          )
+        ? previous.filter((goal) => goal !== value)
         : [...previous, value]
     );
   };
 
-  /* -------------------------------------------------------
-     Browser back button
-  ------------------------------------------------------- */
+  /* ==========================================================
+     BROWSER BACK BUTTON
+  ========================================================== */
 
   useEffect(() => {
+    if (step === 0) return;
+
+    window.history.pushState(
+      { onboardingStep: step },
+      ''
+    );
+
     const handlePopState = () => {
-      setStep((current) =>
-        Math.max(0, current - 1)
-      );
+      if (!loading) {
+        setStep((current) =>
+          Math.max(0, current - 1)
+        );
+      }
     };
 
     window.addEventListener(
@@ -657,25 +477,11 @@ export default function Onboarding() {
         handlePopState
       );
     };
-  }, []);
+  }, [step, loading]);
 
-  const goToStep = (nextStep) => {
-    if (loading) return;
-
-    setStep(nextStep);
-
-    window.history.pushState(
-      {
-        onboardingStep: nextStep,
-      },
-      '',
-      window.location.href
-    );
-  };
-
-  /* -------------------------------------------------------
-     Validation
-  ------------------------------------------------------- */
+  /* ==========================================================
+     VALIDATION
+  ========================================================== */
 
   const step3Valid = hasSkills
     ? Boolean(
@@ -685,123 +491,78 @@ export default function Onboarding() {
       )
     : weightGoals.length > 0;
 
-  const step4Valid =
+  const generateValid =
     equipment.trim().length > 0 &&
     (!hasSkills ||
       goalDescription.trim().length >= 10);
 
-  /* -------------------------------------------------------
-     Honest progress helpers
-  ------------------------------------------------------- */
+  /* ==========================================================
+     PROGRESS
+     
+     IMPORTANT:
+     This is NOT fake time-based progress.
 
-  const markProgress = (
-    value,
-    phase
-  ) => {
+     Progress represents completed known stages.
+
+     0%   = not started
+     5%   = generation started
+     10%  = authenticated user confirmed
+     20%  = profile saved
+     30%  = structure completed
+     30-85% = microcycles actually completed
+     95%  = program saved
+     100% = complete
+  ========================================================== */
+
+  const setGenerationStage = (value, message) => {
     console.log(
-      `[ONBOARDING] COMPLETED ${value}%: ${phase}`
+      `[ONBOARDING] PROGRESS ${value}% — ${message}`
     );
 
     setProgress(value);
-    setLoadingPhase(phase);
+    setLoadingPhase(message);
   };
 
-  /* -------------------------------------------------------
-     MAIN GENERATION FUNCTION
-  ------------------------------------------------------- */
+  /* ==========================================================
+     GENERATION
+  ========================================================== */
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
     console.log(
-      '[ONBOARDING] ========================================'
+      '================================================'
     );
-
     console.log(
       '[ONBOARDING] BUILD MY PROGRAM CLICKED'
     );
-
     console.log(
-      '[ONBOARDING] Current step:',
-      step
+      '================================================'
     );
 
-    console.log(
-      '[ONBOARDING] Loading:',
-      loading
-    );
-
-    console.log(
-      '[ONBOARDING] Training type:',
-      trainingType
-    );
-
-    console.log(
-      '[ONBOARDING] Equipment:',
-      equipment
-    );
-
-    console.log(
-      '[ONBOARDING] Goal:',
-      goalDescription
-    );
-
-    console.log(
-      '[ONBOARDING] ========================================'
-    );
-
-    if (loading) {
-      console.warn(
-        '[ONBOARDING] Generation already in progress.'
+    /*
+     * This guard prevents double generation.
+     */
+    if (generationStartedRef.current || loading) {
+      console.log(
+        '[ONBOARDING] Generation already running — ignoring duplicate click.'
       );
       return;
     }
 
     /*
-     * Final validation.
+     * Validate immediately.
      */
-
-    if (!trainingType) {
-      toast.error(
-        'Please select your training path first.'
+    if (!equipment.trim()) {
+      console.warn(
+        '[ONBOARDING] Missing equipment.'
       );
-      goToStep(1);
-      return;
-    }
 
-    if (!gender) {
       toast.error(
-        'Please select your gender.'
+        'Please enter your available equipment.'
       );
-      goToStep(2);
-      return;
-    }
 
-    if (
-      hasSkills &&
-      fitnessGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one goal.'
-      );
-      goToStep(2);
-      return;
-    }
-
-    if (hasSkills && !level) {
-      toast.error(
-        'Please select your training level.'
-      );
-      goToStep(3);
-      return;
-    }
-
-    if (
-      hasWeightGoals &&
-      weightGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one weight-training goal.'
-      );
-      goToStep(3);
       return;
     }
 
@@ -809,73 +570,83 @@ export default function Onboarding() {
       hasSkills &&
       goalDescription.trim().length < 10
     ) {
+      console.warn(
+        '[ONBOARDING] Goal description is too short.'
+      );
+
       toast.error(
         'Please describe your goals in a little more detail.'
       );
+
       return;
     }
-
-    if (!equipment.trim()) {
-      toast.error(
-        'Please enter your available equipment.'
-      );
-      return;
-    }
-
-    if (
-      generationStartedRef.current
-    ) {
-      console.warn(
-        '[ONBOARDING] Duplicate generation attempt blocked.'
-      );
-      return;
-    }
-
-    generationStartedRef.current =
-      true;
-
-    setLoading(true);
 
     /*
-     * 0% means nothing has completed yet.
+     * CRITICAL:
+     * Lock the generation BEFORE doing anything asynchronous.
+     * This guarantees the screen changes immediately after
+     * the click handler fires.
      */
-    setProgress(0);
+    generationStartedRef.current = true;
 
+    setLoading(true);
+    setProgress(5);
     setLoadingPhase(
       'Starting your personalized program…'
     );
 
+    console.log(
+      '[ONBOARDING] Loading state enabled.'
+    );
+
     try {
-      /* ===================================================
-         STEP A — AUTHENTICATION
-      =================================================== */
+      /*
+       * -------------------------------------------------------
+       * STEP 1 — SETTINGS
+       * -------------------------------------------------------
+       */
 
       console.log(
-        '[ONBOARDING] Checking Supabase authentication...'
+        '[ONBOARDING] Updating app settings...'
       );
 
-      markProgress(
-        2,
+      updateSettings({
+        country,
+        language,
+        unit,
+      });
+
+      /*
+       * -------------------------------------------------------
+       * STEP 2 — AUTH
+       * -------------------------------------------------------
+       */
+
+      setGenerationStage(
+        7,
         'Connecting to your account…'
+      );
+
+      console.log(
+        '[ONBOARDING] Calling supabase.auth.getUser()...'
       );
 
       const {
         data: authData,
         error: authError,
-      } =
-        await supabase.auth.getUser();
+      } = await supabase.auth.getUser();
+
+      console.log(
+        '[ONBOARDING] Auth response:',
+        authData,
+        authError
+      );
 
       if (authError) {
-        console.error(
-          '[ONBOARDING] Auth error:',
-          authError
-        );
-
         throw authError;
       }
 
-      const user =
-        authData?.user;
+      const user = authData?.user;
 
       if (!user) {
         throw new Error(
@@ -883,59 +654,53 @@ export default function Onboarding() {
         );
       }
 
-      console.log(
-        '[ONBOARDING] Authenticated user:',
-        user.id
-      );
-
-      markProgress(
-        5,
+      setGenerationStage(
+        10,
         'Account connected.'
       );
 
-      /* ===================================================
-         STEP B — SAVE PROFILE
-      =================================================== */
-
-      setLoadingPhase(
-        'Saving your profile…'
-      );
-
       console.log(
-        '[ONBOARDING] Preparing profile data...'
+        '[ONBOARDING] AUTHENTICATED USER:',
+        user.id
       );
 
-      const parsedAge =
-        parseInt(age, 10);
+      /*
+       * -------------------------------------------------------
+       * STEP 3 — PROFILE DATA
+       * -------------------------------------------------------
+       */
+
+      const parsedAge = parseInt(age, 10);
 
       const parsedWeight =
         parseFloat(weightLbs);
 
-      /*
-       * The existing database column is weight_lbs.
-       * Convert kg -> lbs when the user selected metric.
-       */
-      const weightInLbs =
-        Number.isFinite(parsedWeight)
-          ? unit === 'metric'
-            ? parsedWeight * 2.2046226218
-            : parsedWeight
-          : null;
+      let heightInches = null;
+      let heightCm = null;
 
-      /*
-       * Height.
-       */
-      const heightInches =
-        unit === 'imperial'
-          ? (parseInt(heightFt, 10) || 0) *
-              12 +
-            (parseInt(heightIn, 10) || 0)
-          : null;
+      if (unit === 'imperial') {
+        const feet =
+          parseInt(heightFt, 10) || 0;
 
-      const heightCm =
-        unit === 'metric'
-          ? parseFloat(heightFt) || null
-          : null;
+        const inches =
+          parseInt(heightIn, 10) || 0;
+
+        const calculated =
+          feet * 12 + inches;
+
+        heightInches =
+          calculated > 0
+            ? calculated
+            : null;
+      } else {
+        const cm =
+          parseFloat(heightFt);
+
+        heightCm =
+          Number.isFinite(cm) && cm > 0
+            ? cm
+            : null;
+      }
 
       const profileData = {
         id: user.id,
@@ -984,31 +749,30 @@ export default function Onboarding() {
           gender || null,
 
         weight_lbs:
-          weightInLbs,
+          Number.isFinite(parsedWeight)
+            ? parsedWeight
+            : null,
 
         height_inches:
-          heightInches || null,
+          heightInches,
 
         height_cm:
           heightCm,
 
         country,
-
         language,
-
         unit,
 
-        /*
-         * IMPORTANT:
-         *
-         * Do NOT mark the user fully onboarded until
-         * the program has actually been generated.
-         */
-        onboarded: false,
+        onboarded: true,
       };
 
+      setGenerationStage(
+        12,
+        'Saving your profile…'
+      );
+
       console.log(
-        '[ONBOARDING] Profile payload:',
+        '[ONBOARDING] Saving profile:',
         profileData
       );
 
@@ -1016,46 +780,32 @@ export default function Onboarding() {
         error: profileError,
       } = await supabase
         .from('profiles')
-        .upsert(profileData);
-
-      if (profileError) {
-        console.error(
-          '[ONBOARDING] PROFILE SAVE FAILED:',
-          profileError
+        .upsert(
+          profileData,
+          {
+            onConflict: 'id',
+          }
         );
 
+      console.log(
+        '[ONBOARDING] Profile save response:',
+        profileError
+      );
+
+      if (profileError) {
         throw profileError;
       }
 
-      console.log(
-        '[ONBOARDING] Profile saved successfully.'
-      );
-
-      markProgress(
-        15,
-        'Profile saved.'
+      setGenerationStage(
+        20,
+        'Profile saved. Preparing your program…'
       );
 
       /*
-       * Do not let a settings-context problem prevent
-       * program generation.
+       * -------------------------------------------------------
+       * PROMPT DATA
+       * -------------------------------------------------------
        */
-      try {
-        updateSettings({
-          country,
-          language,
-          unit,
-        });
-      } catch (settingsError) {
-        console.warn(
-          '[ONBOARDING] Settings update failed, continuing:',
-          settingsError
-        );
-      }
-
-      /* ===================================================
-         PROMPT DATA
-      =================================================== */
 
       const promptData = {
         gender,
@@ -1077,106 +827,104 @@ export default function Onboarding() {
         weightGoals,
       };
 
-      /* ===================================================
-         STEP C — STRUCTURE
-      =================================================== */
-
-      setLoadingPhase(
-        'Designing your program structure…'
-      );
-
       console.log(
-        '[ONBOARDING] Building structure prompt...'
-      );
-
-      let structurePrompt;
-
-      try {
-        structurePrompt =
-          buildStructurePrompt(
-            trainingType,
-            promptData
-          );
-      } catch (promptError) {
-        console.error(
-          '[ONBOARDING] Structure prompt failed:',
-          promptError
-        );
-
-        throw new Error(
-          `Could not build the program request: ${getErrorMessage(
-            promptError,
-            'Unknown prompt error.'
-          )}`
-        );
-      }
-
-      console.log(
-        '[ONBOARDING] Structure prompt created.'
+        '[ONBOARDING] Prompt data:',
+        promptData
       );
 
       /*
-       * This is the FIRST actual AI/Edge Function call.
-       *
-       * The log immediately before it makes it obvious
-       * whether the browser reached this point.
+       * -------------------------------------------------------
+       * STEP 4 — PROGRAM STRUCTURE
+       * -------------------------------------------------------
        */
 
+      setGenerationStage(
+        22,
+        'Designing your program structure…'
+      );
+
+      const structurePrompt =
+        buildStructurePrompt(
+          trainingType,
+          promptData
+        );
+
+      console.log(
+        '[ONBOARDING] STRUCTURE PROMPT CREATED.'
+      );
+
+      console.log(
+        '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
+      );
+
+      console.log(
+        '[ONBOARDING] Function payload type: structure'
+      );
+
       const structureResponse =
-        await invokeWorkoutGeneration(
+        await supabase.functions.invoke(
+          'workout-generation',
           {
-            type: 'structure',
+            body: {
+              type: 'structure',
 
-            prompt: structurePrompt,
+              prompt:
+                structurePrompt,
 
-            schema: {
-              type: 'object',
+              schema: {
+                type: 'object',
 
-              additionalProperties: false,
+                additionalProperties: false,
 
-              properties: {
-                program_name: {
-                  type: 'string',
+                properties: {
+                  program_name: {
+                    type: 'string',
+                  },
+
+                  duration_weeks: {
+                    type: 'number',
+                  },
+
+                  macrocycle: {
+                    type: 'object',
+                    additionalProperties: true,
+                  },
+
+                  mesocycles: {
+                    type: 'array',
+                  },
                 },
 
-                duration_weeks: {
-                  type: 'number',
-                },
-
-                macrocycle: {
-                  type: 'object',
-                  additionalProperties: true,
-                },
-
-                mesocycles: {
-                  type: 'array',
-                },
+                required: [
+                  'program_name',
+                  'duration_weeks',
+                  'macrocycle',
+                  'mesocycles',
+                ],
               },
-
-              required: [
-                'program_name',
-                'duration_weeks',
-                'macrocycle',
-                'mesocycles',
-              ],
             },
           }
         );
 
+      console.log(
+        '[ONBOARDING] STRUCTURE FUNCTION RETURNED:',
+        structureResponse
+      );
+
       const structureResult =
         normalizeFunctionResponse(
-          structureResponse
+          structureResponse,
+          'workout-generation / structure'
         );
 
       console.log(
-        '[ONBOARDING] Structure result:',
+        '[ONBOARDING] STRUCTURE RESULT:',
         structureResult
       );
 
       if (
         !structureResult ||
-        typeof structureResult !==
-          'object'
+        typeof structureResult !== 'object'
       ) {
         throw new Error(
           'AI returned an invalid program structure.'
@@ -1190,132 +938,140 @@ export default function Onboarding() {
           ? structureResult.mesocycles
           : [];
 
-      if (mesocycles.length === 0) {
+      if (!mesocycles.length) {
         throw new Error(
           'AI returned no training phases. Please try again.'
         );
       }
 
-      console.log(
-        `[ONBOARDING] Structure complete. ${mesocycles.length} training phases received.`
-      );
-
-      markProgress(
+      setGenerationStage(
         30,
-        `Program structure created — ${mesocycles.length} training phases.`
+        `Program structure complete — ${mesocycles.length} training phase${
+          mesocycles.length === 1 ? '' : 's'
+        } found.`
       );
 
-      /* ===================================================
-         STEP D — MICROCYCLES
-      =================================================== */
+      /*
+       * -------------------------------------------------------
+       * STEP 5 — MICROCYCLES
+       * -------------------------------------------------------
+       *
+       * We now know exactly how many AI generation operations
+       * need to happen.
+       *
+       * Progress from 30% to 85% is based ONLY on the number
+       * of microcycle calls that have actually completed.
+       */
 
       const allMicrocycles = [];
 
-      /*
-       * Microcycle generation accounts for 55% of the
-       * total workflow.
-       *
-       * Example with 5 phases:
-       *
-       * Phase 1 complete = 41%
-       * Phase 2 complete = 52%
-       * Phase 3 complete = 63%
-       * Phase 4 complete = 74%
-       * Phase 5 complete = 85%
-       *
-       * The number ONLY changes after an actual phase
-       * has returned successfully.
-       */
+      const microcycleStart = 30;
+      const microcycleEnd = 85;
+      const microcycleRange =
+        microcycleEnd - microcycleStart;
 
       for (
         let index = 0;
         index < mesocycles.length;
-        index++
+        index += 1
       ) {
         const meso =
           mesocycles[index];
 
         const phaseName =
           meso?.name ||
-          `Training phase ${index + 1}`;
+          `training phase ${index + 1}`;
 
-        const phaseStart =
-          30 +
-          (index /
+        const completedBefore =
+          index;
+
+        const progressBefore =
+          microcycleStart +
+          (completedBefore /
             mesocycles.length) *
-            55;
+            microcycleRange;
 
-        const phaseComplete =
-          30 +
-          ((index + 1) /
-            mesocycles.length) *
-            55;
-
-        setProgress(
-          Math.round(phaseStart)
-        );
-
-        setLoadingPhase(
+        setGenerationStage(
+          Math.round(progressBefore),
           `Building ${phaseName}…`
         );
 
         console.log(
-          `[ONBOARDING] Starting microcycle ${index + 1}/${mesocycles.length}: ${phaseName}`
+          '------------------------------------------------'
         );
 
-        let microPrompt;
+        console.log(
+          `[ONBOARDING] MICROcycle ${index + 1}/${mesocycles.length}`
+        );
 
-        try {
-          microPrompt =
-            buildMicrocyclePrompt(
-              trainingType,
-              promptData,
-              index,
-              meso
-            );
-        } catch (promptError) {
-          console.error(
-            `[ONBOARDING] Microcycle prompt failed for phase ${index + 1}:`,
-            promptError
+        console.log(
+          `[ONBOARDING] Phase: ${phaseName}`
+        );
+
+        const microPrompt =
+          buildMicrocyclePrompt(
+            trainingType,
+            promptData,
+            index,
+            meso
           );
 
-          throw new Error(
-            `Could not build the request for ${phaseName}: ${getErrorMessage(
-              promptError,
-              'Unknown prompt error.'
-            )}`
-          );
-        }
+        console.log(
+          `[ONBOARDING] Microcycle prompt ${index + 1} created.`
+        );
+
+        console.log(
+          '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
+        );
+
+        console.log(
+          `[ONBOARDING] Function payload type: microcycle (${index + 1}/${mesocycles.length})`
+        );
 
         const microResponse =
-          await invokeWorkoutGeneration(
+          await supabase.functions.invoke(
+            'workout-generation',
             {
-              type: 'microcycle',
+              body: {
+                type: 'microcycle',
 
-              prompt: microPrompt,
+                prompt:
+                  microPrompt,
 
-              schema: {
-                type: 'object',
+                schema: {
+                  type: 'object',
 
-                additionalProperties: false,
+                  additionalProperties: false,
 
-                properties: {
-                  microcycles: {
-                    type: 'array',
+                  properties: {
+                    microcycles: {
+                      type: 'array',
+                    },
                   },
-                },
 
-                required: [
-                  'microcycles',
-                ],
+                  required: [
+                    'microcycles',
+                  ],
+                },
               },
             }
           );
 
+        console.log(
+          `[ONBOARDING] MICROcycle ${index + 1} FUNCTION RETURNED:`,
+          microResponse
+        );
+
         const microResult =
           normalizeFunctionResponse(
-            microResponse
+            microResponse,
+            `workout-generation / microcycle ${index + 1}`
           );
+
+        console.log(
+          `[ONBOARDING] MICROcycle ${index + 1} RESULT:`,
+          microResult
+        );
 
         const generatedMicrocycles =
           Array.isArray(
@@ -1325,8 +1081,7 @@ export default function Onboarding() {
             : [];
 
         if (
-          generatedMicrocycles.length ===
-          0
+          !generatedMicrocycles.length
         ) {
           throw new Error(
             `AI returned no workouts for ${phaseName}.`
@@ -1337,45 +1092,72 @@ export default function Onboarding() {
           ...generatedMicrocycles
         );
 
-        console.log(
-          `[ONBOARDING] Completed microcycle ${index + 1}/${mesocycles.length}. Generated ${generatedMicrocycles.length} workout block(s).`
-        );
+        /*
+         * Only advance after this AI operation has actually
+         * completed successfully.
+         */
+        const completed =
+          index + 1;
 
-        markProgress(
+        const completedProgress =
+          microcycleStart +
+          (completed /
+            mesocycles.length) *
+            microcycleRange;
+
+        setGenerationStage(
           Math.round(
-            phaseComplete
+            completedProgress
           ),
-          `${phaseName} completed.`
+          `${phaseName} complete (${completed}/${mesocycles.length}).`
         );
-      }
 
-      if (
-        allMicrocycles.length ===
-        0
-      ) {
-        throw new Error(
-          'No workouts were generated. Please try again.'
+        console.log(
+          `[ONBOARDING] MICROcycle ${index + 1} COMPLETE.`
         );
       }
 
       console.log(
-        '[ONBOARDING] ALL MICROCYCLES COMPLETE:',
+        '[ONBOARDING] ALL MICROCYCLES:',
         allMicrocycles
       );
 
-      /* ===================================================
-         STEP E — SAVE PROGRAM
-      =================================================== */
+      if (!allMicrocycles.length) {
+        throw new Error(
+          'No workouts were generated.'
+        );
+      }
 
-      markProgress(
-        88,
-        'All workouts generated. Saving your program…'
+      /*
+       * -------------------------------------------------------
+       * STEP 6 — SAVE PROGRAM
+       * -------------------------------------------------------
+       */
+
+      setGenerationStage(
+        90,
+        'Saving your personalized program…'
       );
+
+      const primaryGoal =
+        goalDescription.trim() ||
+        weightGoals.join(', ') ||
+        fitnessGoals.join(', ');
 
       const programPayload = {
         user_id: user.id,
 
-        ...structureResult,
+        program_name:
+          structureResult.program_name,
+
+        duration_weeks:
+          structureResult.duration_weeks,
+
+        macrocycle:
+          structureResult.macrocycle,
+
+        mesocycles:
+          structureResult.mesocycles,
 
         microcycles:
           allMicrocycles,
@@ -1387,9 +1169,7 @@ export default function Onboarding() {
           level || 'intermediate',
 
         goal:
-          goalDescription.trim() ||
-          weightGoals.join(', ') ||
-          fitnessGoals.join(', '),
+          primaryGoal,
 
         current_week: 1,
 
@@ -1397,8 +1177,12 @@ export default function Onboarding() {
       };
 
       console.log(
-        '[ONBOARDING] Program payload:',
+        '[ONBOARDING] FINAL PROGRAM PAYLOAD:',
         programPayload
+      );
+
+      console.log(
+        '[ONBOARDING] Saving workout program to Supabase...'
       );
 
       const {
@@ -1406,89 +1190,73 @@ export default function Onboarding() {
         error: programError,
       } = await supabase
         .from('workout_programs')
-        .insert(programPayload)
+        .insert(
+          programPayload
+        )
         .select()
         .single();
 
-      if (programError) {
-        console.error(
-          '[ONBOARDING] PROGRAM SAVE FAILED:',
-          programError
-        );
+      console.log(
+        '[ONBOARDING] PROGRAM SAVE RESPONSE:',
+        savedProgram,
+        programError
+      );
 
+      if (programError) {
         throw programError;
       }
 
       if (!savedProgram) {
         throw new Error(
-          'The program was generated but could not be confirmed in the database.'
+          'The program was generated but could not be confirmed as saved.'
         );
       }
 
-      console.log(
-        '[ONBOARDING] PROGRAM SAVED:',
-        savedProgram
-      );
-
-      markProgress(
+      setGenerationStage(
         95,
-        'Personalized program saved.'
+        'Program saved successfully. Finishing up…'
       );
 
-      /* ===================================================
-         STEP F — MARK ONBOARDING COMPLETE
-      =================================================== */
+      /*
+       * -------------------------------------------------------
+       * STEP 7 — CACHE REFRESH
+       * -------------------------------------------------------
+       */
 
       console.log(
-        '[ONBOARDING] Marking profile as fully onboarded...'
-      );
-
-      const {
-        error: onboardedError,
-      } = await supabase
-        .from('profiles')
-        .update({
-          onboarded: true,
-        })
-        .eq('id', user.id);
-
-      if (onboardedError) {
-        console.error(
-          '[ONBOARDING] Failed to mark onboarded:',
-          onboardedError
-        );
-
-        throw onboardedError;
-      }
-
-      console.log(
-        '[ONBOARDING] Profile marked onboarded.'
-      );
-
-      /* ===================================================
-         COMPLETE
-      =================================================== */
-
-      markProgress(
-        100,
-        'Your personalized program is ready!'
+        '[ONBOARDING] Refreshing application data...'
       );
 
       try {
         await queryClientInstance.invalidateQueries();
-      } catch (queryError) {
+      } catch (cacheError) {
+        /*
+         * Cache refresh should not make a successfully saved
+         * program look like a failed generation.
+         */
         console.warn(
-          '[ONBOARDING] Query cache refresh failed:',
-          queryError
+          '[ONBOARDING] Cache refresh warning:',
+          cacheError
         );
       }
+
+      /*
+       * -------------------------------------------------------
+       * COMPLETE
+       * -------------------------------------------------------
+       */
+
+      setGenerationStage(
+        100,
+        'Your personalized program is ready!'
+      );
 
       toast.success(
         'Your personalized program is ready!'
       );
 
       console.log(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       console.log(
@@ -1496,18 +1264,21 @@ export default function Onboarding() {
       );
 
       console.log(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       /*
-       * Navigate only after everything above succeeds.
+       * Give React time to render the 100% state before
+       * navigating away.
        */
+      await sleep(800);
+
       navigate('/', {
         replace: true,
       });
     } catch (error) {
       console.error(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       console.error(
@@ -1515,12 +1286,11 @@ export default function Onboarding() {
       );
 
       console.error(
-        '[ONBOARDING] Error:',
         error
       );
 
       console.error(
-        '[ONBOARDING] ========================================'
+        '================================================'
       );
 
       const message =
@@ -1537,38 +1307,44 @@ export default function Onboarding() {
         false;
 
       toast.error(message);
+
+      console.error(
+        '[ONBOARDING] USER-FACING ERROR:',
+        message
+      );
     }
   };
 
-  /* -------------------------------------------------------
-     Render
-  ------------------------------------------------------- */
+  /* ==========================================================
+     RENDER
+  ========================================================== */
 
   return (
     <div className="min-h-screen bg-background flex flex-col safe-top safe-bottom">
-      {/* Progress steps */}
+      {/* ======================================================
+          PROGRESS INDICATOR
+      ====================================================== */}
+
       <div className="px-6 pt-4 pb-4">
         <div className="flex items-center gap-2 mb-2">
-          {[0, 1, 2, 3, 4].map(
-            (index) => (
-              <div
-                key={index}
-                className={cn(
-                  'h-1 rounded-full flex-1 transition-all duration-500',
-                  index <= step
-                    ? 'bg-primary'
-                    : 'bg-muted'
-                )}
-              />
-            )
-          )}
+          {[0, 1, 2, 3, 4].map((index) => (
+            <div
+              key={index}
+              className={cn(
+                'h-1 rounded-full flex-1 transition-all duration-500',
+                index <= step
+                  ? 'bg-primary'
+                  : 'bg-muted'
+              )}
+            />
+          ))}
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        {/* =================================================
+        {/* ====================================================
             STEP 0
-        ================================================= */}
+        ==================================================== */}
 
         {step === 0 && (
           <motion.div
@@ -1708,27 +1484,24 @@ export default function Onboarding() {
               </div>
             </div>
 
-            <Button
+            <button
               type="button"
-              size="lg"
-              className="w-full h-14 text-lg font-heading font-semibold mb-8 mt-4"
               disabled={
                 !firstName.trim() ||
                 !country
               }
-              onClick={() =>
-                goToStep(1)
-              }
+              onClick={() => setStep(1)}
+              className="w-full h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold mb-8 mt-4 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
             >
               Get Started
               <ChevronRight className="ml-2 w-5 h-5" />
-            </Button>
+            </button>
           </motion.div>
         )}
 
-        {/* =================================================
+        {/* ====================================================
             STEP 1
-        ================================================= */}
+        ==================================================== */}
 
         {step === 1 && (
           <motion.div
@@ -1764,37 +1537,30 @@ export default function Onboarding() {
             </div>
 
             <div className="flex gap-3 mb-8 mt-4">
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="lg"
-                className="h-14"
-                onClick={() =>
-                  goToStep(0)
-                }
+                className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
+                onClick={() => setStep(0)}
               >
                 <ChevronLeft className="w-5 h-5" />
-              </Button>
+              </button>
 
-              <Button
+              <button
                 type="button"
-                size="lg"
-                className="flex-1 h-14 text-lg font-heading font-semibold"
+                className="flex-1 h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
                 disabled={!trainingType}
-                onClick={() =>
-                  goToStep(2)
-                }
+                onClick={() => setStep(2)}
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
-              </Button>
+              </button>
             </div>
           </motion.div>
         )}
 
-        {/* =================================================
+        {/* ====================================================
             STEP 2
-        ================================================= */}
+        ==================================================== */}
 
         {step === 2 && (
           <motion.div
@@ -1892,7 +1658,7 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.1"
                     placeholder={
                       unit === 'metric'
@@ -1918,8 +1684,7 @@ export default function Onboarding() {
                 {unit === 'metric' ? (
                   <Input
                     type="number"
-                    min="1"
-                    step="0.1"
+                    min="0"
                     placeholder="Height in cm (e.g. 178)"
                     value={heightFt}
                     onChange={(event) =>
@@ -1933,7 +1698,7 @@ export default function Onboarding() {
                   <div className="grid grid-cols-2 gap-3">
                     <Input
                       type="number"
-                      min="1"
+                      min="0"
                       max="8"
                       placeholder="Feet (e.g. 5)"
                       value={heightFt}
@@ -2020,42 +1785,34 @@ export default function Onboarding() {
             </div>
 
             <div className="flex gap-3 mb-8 mt-4">
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="lg"
-                className="h-14"
-                onClick={() =>
-                  goToStep(1)
-                }
+                className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
+                onClick={() => setStep(1)}
               >
                 <ChevronLeft className="w-5 h-5" />
-              </Button>
+              </button>
 
-              <Button
+              <button
                 type="button"
-                size="lg"
-                className="flex-1 h-14 text-lg font-heading font-semibold"
+                className="flex-1 h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
                 disabled={
                   !gender ||
                   (hasSkills &&
-                    fitnessGoals.length ===
-                      0)
+                    fitnessGoals.length === 0)
                 }
-                onClick={() =>
-                  goToStep(3)
-                }
+                onClick={() => setStep(3)}
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
-              </Button>
+              </button>
             </div>
           </motion.div>
         )}
 
-        {/* =================================================
+        {/* ====================================================
             STEP 3
-        ================================================= */}
+        ==================================================== */}
 
         {step === 3 && (
           <motion.div
@@ -2082,9 +1839,7 @@ export default function Onboarding() {
 
                 <p className="text-muted-foreground mb-6">
                   Where are you in your journey,{' '}
-                  {firstName ||
-                    'Athlete'}
-                  ?
+                  {firstName || 'Athlete'}?
                 </p>
 
                 <div className="space-y-3 flex-1">
@@ -2100,14 +1855,11 @@ export default function Onboarding() {
                         <button
                           type="button"
                           onClick={() =>
-                            setLevel(
-                              value
-                            )
+                            setLevel(value)
                           }
                           className={cn(
                             'w-full p-4 rounded-2xl border-2 text-left transition-all',
-                            level ===
-                              value
+                            level === value
                               ? 'border-primary bg-primary/10'
                               : 'border-border bg-card hover:border-muted-foreground/30'
                           )}
@@ -2116,8 +1868,7 @@ export default function Onboarding() {
                             <div
                               className={cn(
                                 'w-10 h-10 rounded-xl flex items-center justify-center',
-                                level ===
-                                  value
+                                level === value
                                   ? 'bg-primary text-primary-foreground'
                                   : 'bg-muted text-muted-foreground'
                               )}
@@ -2137,33 +1888,22 @@ export default function Onboarding() {
                           </div>
                         </button>
 
-                        {level ===
-                          value && (
+                        {level === value && (
                           <div className="mt-1.5 px-1">
                             <Textarea
-                              value={
-                                currentSkills
-                              }
-                              onChange={(
-                                event
-                              ) =>
+                              value={currentSkills}
+                              onChange={(event) =>
                                 setCurrentSkills(
-                                  event
-                                    .target
-                                    .value
+                                  event.target.value
                                 )
                               }
-                              placeholder={
-                                placeholder
-                              }
+                              placeholder={placeholder}
                               className="text-sm resize-none min-h-[72px] rounded-2xl border-primary/40 bg-primary/5 focus:border-primary leading-relaxed"
                             />
 
                             <p className="text-xs text-muted-foreground mt-1 pl-1">
-                              What skills &
-                              moves can
-                              you currently
-                              do?
+                              What skills & moves can
+                              you currently do?
                             </p>
                           </div>
                         )}
@@ -2237,11 +1977,9 @@ export default function Onboarding() {
                 </h2>
 
                 <p className="text-muted-foreground mb-6">
-                  What do you want to achieve
-                  with weight training,{' '}
-                  {firstName ||
-                    'Athlete'}
-                  ?
+                  What do you want to achieve with
+                  weight training,{' '}
+                  {firstName || 'Athlete'}?
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 flex-1">
@@ -2295,37 +2033,30 @@ export default function Onboarding() {
             )}
 
             <div className="flex gap-3 mb-8 mt-4">
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="lg"
-                className="h-14"
-                onClick={() =>
-                  goToStep(2)
-                }
+                className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all"
+                onClick={() => setStep(2)}
               >
                 <ChevronLeft className="w-5 h-5" />
-              </Button>
+              </button>
 
-              <Button
+              <button
                 type="button"
-                size="lg"
-                className="flex-1 h-14 text-lg font-heading font-semibold"
+                className="flex-1 h-14 rounded-xl bg-primary text-primary-foreground text-lg font-heading font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-all flex items-center justify-center"
                 disabled={!step3Valid}
-                onClick={() =>
-                  goToStep(4)
-                }
+                onClick={() => setStep(4)}
               >
                 Continue
                 <ChevronRight className="ml-2 w-5 h-5" />
-              </Button>
+              </button>
             </div>
           </motion.div>
         )}
 
-        {/* =================================================
+        {/* ====================================================
             STEP 4
-        ================================================= */}
+        ==================================================== */}
 
         {step === 4 && (
           <motion.div
@@ -2350,12 +2081,10 @@ export default function Onboarding() {
               <h2 className="font-heading text-2xl font-bold">
                 {hasSkills
                   ? `Tell us your goals, ${
-                      firstName ||
-                      'Athlete'
+                      firstName || 'Athlete'
                     }`
                   : `Final details, ${
-                      firstName ||
-                      'Athlete'
+                      firstName || 'Athlete'
                     }`}
               </h2>
             </div>
@@ -2410,9 +2139,7 @@ export default function Onboarding() {
                   <p className="text-sm text-muted-foreground">
                     You selected:{' '}
                     <span className="font-semibold text-foreground">
-                      {weightGoals.join(
-                        ', '
-                      ) ||
+                      {weightGoals.join(', ') ||
                         'General fitness'}
                     </span>
                   </p>
@@ -2444,8 +2171,8 @@ export default function Onboarding() {
                 />
 
                 <p className="text-[10px] text-muted-foreground mt-1.5">
-                  List everything you have
-                  access to — this is required.
+                  List everything you have access to —
+                  this is required.
                 </p>
               </div>
 
@@ -2467,93 +2194,37 @@ export default function Onboarding() {
                 />
 
                 <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Time available, limitations,
-                  areas to focus on, and anything
-                  else that helps personalize your
-                  program.
+                  Time available, limitations, areas to
+                  focus on, and anything else that helps
+                  personalize your program.
                 </p>
               </div>
             </div>
 
-            {/* =================================================
-                GENERATION CONTROLS
-            ================================================= */}
-
-            <div className="flex gap-3 mb-4 mt-4">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-14"
-                disabled={loading}
-                onClick={() =>
-                  goToStep(3)
-                }
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-
-              <Button
-                type="button"
-                size="lg"
-                className="flex-1 h-14 text-lg font-heading font-semibold"
-                disabled={
-                  loading ||
-                  !step4Valid
-                }
-                onClick={(event) => {
-                  /*
-                   * Explicitly prevent any parent/form
-                   * behavior from interfering.
-                   */
-                  event.preventDefault();
-                  event.stopPropagation();
-
-                  console.log(
-                    '[ONBOARDING] Build My Program button event fired.'
-                  );
-
-                  void handleGenerate();
-                }}
-                aria-busy={loading}
-              >
-                {loading ? (
-                  <div className="flex items-center gap-3 w-full justify-center">
-                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin flex-shrink-0" />
-
-                    <span className="truncate">
-                      {loadingPhase ||
-                        'Building your program…'}
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    Build My Program
-                    <Sparkles className="ml-2 w-5 h-5" />
-                  </>
-                )}
-              </Button>
-            </div>
-
-            {/* =================================================
-                HONEST GENERATION PROGRESS
-            ================================================= */}
+            {/* ==================================================
+                GENERATION AREA
+            ================================================== */}
 
             {loading && (
-              <div className="mb-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-foreground">
-                    Building your program
-                  </p>
+              <div className="mt-5 mb-2 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin flex-shrink-0" />
 
-                  <p className="text-sm font-bold text-primary">
+                    <p className="text-sm font-semibold truncate">
+                      {loadingPhase ||
+                        'Building your program…'}
+                    </p>
+                  </div>
+
+                  <span className="text-sm font-bold text-primary flex-shrink-0">
                     {Math.round(progress)}%
-                  </p>
+                  </span>
                 </div>
 
                 <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-[width] duration-500 ease-out"
+                    className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
                     style={{
                       width: `${Math.max(
                         0,
@@ -2566,32 +2237,76 @@ export default function Onboarding() {
                   />
                 </div>
 
-                <div className="flex items-start gap-2">
-                  <div className="w-2 h-2 mt-1.5 rounded-full bg-primary animate-pulse flex-shrink-0" />
-
-                  <p className="text-xs text-muted-foreground">
-                    {loadingPhase ||
-                      'Building your program…'}
-                  </p>
-                </div>
-
-                <p className="text-[10px] text-muted-foreground text-center">
-                  Progress reflects completed
-                  program-building stages. It will
-                  only advance when a stage actually
-                  finishes.
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Progress advances when each generation
+                  stage actually completes.
                 </p>
               </div>
             )}
 
+            <div className="flex gap-3 mb-8 mt-4">
+              <button
+                type="button"
+                className="h-14 px-5 rounded-xl border border-border bg-card hover:bg-muted transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
+                onClick={() => setStep(3)}
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              {/*
+               * IMPORTANT:
+               *
+               * This is intentionally a native HTML button.
+               * There is no custom Button component between the
+               * browser click and handleGenerate().
+               */}
+              <button
+                type="button"
+                id="build-my-program-button"
+                data-onboarding-build-button="true"
+                disabled={
+                  loading ||
+                  !generateValid
+                }
+                onClick={handleGenerate}
+                onPointerDown={() => {
+                  console.log(
+                    '[ONBOARDING] Build button pointer down.'
+                  );
+                }}
+                className={cn(
+                  'relative z-50 pointer-events-auto flex-1 h-14 rounded-xl text-lg font-heading font-semibold transition-all flex items-center justify-center',
+                  'bg-primary text-primary-foreground',
+                  'hover:opacity-90 active:scale-[0.99]',
+                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none'
+                )}
+              >
+                {loading ? (
+                  <span className="flex items-center gap-3">
+                    <span className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+
+                    <span>
+                      Building…{' '}
+                      {Math.round(progress)}%
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    Build My Program
+                    <Sparkles className="ml-2 w-5 h-5" />
+                  </>
+                )}
+              </button>
+            </div>
+
             {!loading &&
-              !step4Valid && (
+              !generateValid && (
                 <p className="text-xs text-muted-foreground text-center mb-6">
                   {hasSkills &&
-                  goalDescription.trim()
-                    .length < 10
+                  goalDescription.trim().length < 10
                     ? 'Add a little more detail about your goals to continue.'
-                    : 'Enter your available equipment to build your program.'}
+                    : 'Enter your available equipment to continue.'}
                 </p>
               )}
           </motion.div>
@@ -2600,3 +2315,4 @@ export default function Onboarding() {
     </div>
   );
 }
+```
