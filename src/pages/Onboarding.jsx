@@ -1,4 +1,3 @@
-```jsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -118,7 +117,7 @@ function getErrorMessage(error, fallback = 'Something went wrong.') {
       return stringified;
     }
   } catch {
-    // Ignore JSON serialization errors.
+    // Ignore serialization errors.
   }
 
   return fallback;
@@ -126,54 +125,67 @@ function getErrorMessage(error, fallback = 'Something went wrong.') {
 
 function normalizeFunctionResponse(response, functionName) {
   console.log(
-    `[ONBOARDING] ${functionName} raw response:`,
+    '[ONBOARDING]',
+    functionName,
+    'raw response:',
     response
   );
 
   if (!response) {
-    throw new Error(
-      `${functionName} returned no response.`
-    );
+    throw new Error(functionName + ' returned no response.');
   }
 
   if (response.error) {
     throw new Error(
       getErrorMessage(
         response.error,
-        `${functionName} returned an error.`
+        functionName + ' returned an error.'
       )
     );
   }
 
   if (response.data == null) {
     throw new Error(
-      `${functionName} returned an empty response.`
+      functionName + ' returned an empty response.'
     );
   }
 
   const data = response.data;
 
-  if (data?.success === false) {
+  if (data && data.success === false) {
     throw new Error(
       getErrorMessage(
-        data?.error || data?.message,
-        `${functionName} failed.`
+        data.error || data.message,
+        functionName + ' failed.'
       )
     );
   }
 
-  return data?.result ?? data;
+  return data && data.result != null
+    ? data.result
+    : data;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-/* ============================================================
-   SEARCH SELECT
-============================================================ */
+/*
+ * This progress system is deliberately NOT time based.
+ *
+ * The percentage represents completed known operations.
+ * While an operation is running, the percentage does not
+ * move until that operation actually succeeds.
+ *
+ * Therefore:
+ *
+ * 0%   = nothing started
+ * 10%  = authentication complete
+ * 20%  = profile saved
+ * 30%  = structure generated
+ * 30–85% = each microcycle generation actually completed
+ * 90%  = program saved
+ * 95%  = cache refresh completed
+ * 100% = finished
+ *
+ * The percentage is NOT an estimate of remaining time.
+ */
 
 function SearchSelect({
   value,
@@ -187,9 +199,7 @@ function SearchSelect({
   const filtered = useMemo(() => {
     return options
       .filter((option) =>
-        option
-          .toLowerCase()
-          .includes(search.toLowerCase())
+        option.toLowerCase().includes(search.toLowerCase())
       )
       .slice(0, 200);
   }, [options, search]);
@@ -228,9 +238,7 @@ function SearchSelect({
             <input
               autoFocus
               value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search..."
               className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
             />
@@ -267,14 +275,7 @@ function SearchSelect({
   );
 }
 
-/* ============================================================
-   COUNTRY SELECT
-============================================================ */
-
-function CountrySelect({
-  value,
-  onChange,
-}) {
+function CountrySelect({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -284,9 +285,7 @@ function CountrySelect({
 
   const filtered = useMemo(() => {
     return COUNTRIES.filter((item) =>
-      item.name
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      item.name.toLowerCase().includes(search.toLowerCase())
     );
   }, [search]);
 
@@ -318,9 +317,7 @@ function CountrySelect({
             <input
               autoFocus
               value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search country..."
               className="w-full h-9 px-3 text-sm bg-muted rounded-xl outline-none placeholder:text-muted-foreground"
             />
@@ -378,16 +375,13 @@ export default function Onboarding() {
   const [trainingType, setTrainingType] = useState('');
   const [level, setLevel] = useState('');
 
-  const [goalDescription, setGoalDescription] =
-    useState('');
-
+  const [goalDescription, setGoalDescription] = useState('');
   const [timeframe, setTimeframe] = useState('');
   const [equipment, setEquipment] = useState('');
   const [requirements, setRequirements] = useState('');
 
   const [age, setAge] = useState('');
   const [weightLbs, setWeightLbs] = useState('');
-
   const [heightFt, setHeightFt] = useState('');
   const [heightIn, setHeightIn] = useState('');
 
@@ -399,6 +393,7 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [loadingPhase, setLoadingPhase] = useState('');
+  const [generationError, setGenerationError] = useState('');
 
   const generationStartedRef = useRef(false);
 
@@ -411,10 +406,6 @@ export default function Onboarding() {
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
-  /* ==========================================================
-     COUNTRY
-  ========================================================== */
-
   const handleCountryChange = (code) => {
     setCountry(code);
 
@@ -425,10 +416,6 @@ export default function Onboarding() {
       setUnit(defaults.unit);
     }
   };
-
-  /* ==========================================================
-     GOALS
-  ========================================================== */
 
   const toggleGoal = (value) => {
     setFitnessGoals((previous) =>
@@ -446,10 +433,6 @@ export default function Onboarding() {
     );
   };
 
-  /* ==========================================================
-     BROWSER BACK BUTTON
-  ========================================================== */
-
   useEffect(() => {
     if (step === 0) return;
 
@@ -460,103 +443,179 @@ export default function Onboarding() {
 
     const handlePopState = () => {
       if (!loading) {
-        setStep((current) =>
-          Math.max(0, current - 1)
-        );
+        setStep((current) => Math.max(0, current - 1));
       }
     };
 
-    window.addEventListener(
-      'popstate',
-      handlePopState
-    );
+    window.addEventListener('popstate', handlePopState);
 
     return () => {
-      window.removeEventListener(
-        'popstate',
-        handlePopState
-      );
+      window.removeEventListener('popstate', handlePopState);
     };
   }, [step, loading]);
-
-  /* ==========================================================
-     VALIDATION
-  ========================================================== */
 
   const step3Valid = hasSkills
     ? Boolean(
         level &&
-          (!hasWeightGoals ||
-            weightGoals.length > 0)
+          (!hasWeightGoals || weightGoals.length > 0)
       )
     : weightGoals.length > 0;
 
   const generateValid =
     equipment.trim().length > 0 &&
-    (!hasSkills ||
-      goalDescription.trim().length >= 10);
+    (!hasSkills || goalDescription.trim().length >= 10);
 
-  /* ==========================================================
-     PROGRESS
-     
-     IMPORTANT:
-     This is NOT fake time-based progress.
-
-     Progress represents completed known stages.
-
-     0%   = not started
-     5%   = generation started
-     10%  = authenticated user confirmed
-     20%  = profile saved
-     30%  = structure completed
-     30-85% = microcycles actually completed
-     95%  = program saved
-     100% = complete
-  ========================================================== */
-
+  /*
+   * Centralized progress update.
+   */
   const setGenerationStage = (value, message) => {
-    console.log(
-      `[ONBOARDING] PROGRESS ${value}% — ${message}`
+    const safeValue = Math.max(
+      0,
+      Math.min(100, Math.round(value))
     );
 
-    setProgress(value);
+    console.log(
+      '[ONBOARDING] PROGRESS:',
+      safeValue + '%',
+      message
+    );
+
+    setProgress(safeValue);
     setLoadingPhase(message);
   };
 
-  /* ==========================================================
-     GENERATION
-  ========================================================== */
-
-  const handleGenerate = async (event) => {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
+  /*
+   * Explicit wrapper around Supabase function invocation.
+   *
+   * This is intentionally verbose so the browser console clearly
+   * shows whether the request was attempted and whether Supabase
+   * returned.
+   */
+  const invokeWorkoutGeneration = async (
+    type,
+    prompt,
+    schema,
+    label
+  ) => {
+    console.log(
+      '[ONBOARDING] ========================================'
+    );
 
     console.log(
-      '================================================'
+      '[ONBOARDING] SUPABASE INVOCATION START:',
+      label
     );
+
+    console.log(
+      '[ONBOARDING] Function:',
+      'workout-generation'
+    );
+
+    console.log(
+      '[ONBOARDING] Type:',
+      type
+    );
+
+    console.log(
+      '[ONBOARDING] Supabase client exists:',
+      Boolean(supabase)
+    );
+
+    if (!supabase) {
+      throw new Error(
+        'Supabase client is not available in the browser.'
+      );
+    }
+
+    try {
+      const response =
+        await supabase.functions.invoke(
+          'workout-generation',
+          {
+            body: {
+              type,
+              prompt,
+              schema,
+            },
+          }
+        );
+
+      console.log(
+        '[ONBOARDING] SUPABASE INVOCATION RETURNED:',
+        label,
+        response
+      );
+
+      console.log(
+        '[ONBOARDING] SUPABASE INVOCATION END:',
+        label
+      );
+
+      return normalizeFunctionResponse(
+        response,
+        label
+      );
+    } catch (error) {
+      console.error(
+        '[ONBOARDING] SUPABASE INVOCATION FAILED:',
+        label,
+        error
+      );
+
+      throw error;
+    }
+  };
+
+  /* ============================================================
+     GENERATION
+  ============================================================ */
+
+  const handleGenerate = async (event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    console.log(
+      '[ONBOARDING] ========================================'
+    );
+
     console.log(
       '[ONBOARDING] BUILD MY PROGRAM CLICKED'
     );
+
     console.log(
-      '================================================'
+      '[ONBOARDING] Button handler reached successfully.'
+    );
+
+    console.log(
+      '[ONBOARDING] Current form state:',
+      {
+        trainingType,
+        level,
+        equipment,
+        goalDescription,
+        fitnessGoals,
+        weightGoals,
+      }
     );
 
     /*
-     * This guard prevents double generation.
+     * Prevent duplicate generation.
      */
     if (generationStartedRef.current || loading) {
-      console.log(
-        '[ONBOARDING] Generation already running — ignoring duplicate click.'
+      console.warn(
+        '[ONBOARDING] Generation already running.'
       );
       return;
     }
 
     /*
-     * Validate immediately.
+     * Validate before locking the process.
      */
     if (!equipment.trim()) {
       console.warn(
-        '[ONBOARDING] Missing equipment.'
+        '[ONBOARDING] Generation blocked: equipment missing.'
       );
 
       toast.error(
@@ -571,7 +630,7 @@ export default function Onboarding() {
       goalDescription.trim().length < 10
     ) {
       console.warn(
-        '[ONBOARDING] Goal description is too short.'
+        '[ONBOARDING] Generation blocked: goal description too short.'
       );
 
       toast.error(
@@ -582,16 +641,20 @@ export default function Onboarding() {
     }
 
     /*
-     * CRITICAL:
-     * Lock the generation BEFORE doing anything asynchronous.
-     * This guarantees the screen changes immediately after
-     * the click handler fires.
+     * LOCK IMMEDIATELY.
+     *
+     * This happens synchronously inside the click handler,
+     * before the first await.
      */
     generationStartedRef.current = true;
-
+    setGenerationError('');
     setLoading(true);
-    setProgress(5);
-    setLoadingPhase(
+
+    /*
+     * The user should immediately see that the click worked.
+     */
+    setGenerationStage(
+      1,
       'Starting your personalized program…'
     );
 
@@ -600,36 +663,45 @@ export default function Onboarding() {
     );
 
     try {
-      /*
-       * -------------------------------------------------------
-       * STEP 1 — SETTINGS
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         1. SETTINGS
+      ======================================================== */
 
       console.log(
-        '[ONBOARDING] Updating app settings...'
+        '[ONBOARDING] Updating application settings...'
       );
 
-      updateSettings({
-        country,
-        language,
-        unit,
-      });
+      try {
+        updateSettings({
+          country,
+          language,
+          unit,
+        });
+      } catch (settingsError) {
+        console.warn(
+          '[ONBOARDING] Settings update warning:',
+          settingsError
+        );
+      }
 
-      /*
-       * -------------------------------------------------------
-       * STEP 2 — AUTH
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         2. AUTHENTICATION
+      ======================================================== */
 
       setGenerationStage(
-        7,
+        5,
         'Connecting to your account…'
       );
 
       console.log(
-        '[ONBOARDING] Calling supabase.auth.getUser()...'
+        '[ONBOARDING] ABOUT TO CALL supabase.auth.getUser()'
       );
+
+      if (!supabase) {
+        throw new Error(
+          'Supabase client is not initialized.'
+        );
+      }
 
       const {
         data: authData,
@@ -637,9 +709,11 @@ export default function Onboarding() {
       } = await supabase.auth.getUser();
 
       console.log(
-        '[ONBOARDING] Auth response:',
-        authData,
-        authError
+        '[ONBOARDING] supabase.auth.getUser() RETURNED:',
+        {
+          authData,
+          authError,
+        }
       );
 
       if (authError) {
@@ -664,16 +738,30 @@ export default function Onboarding() {
         user.id
       );
 
-      /*
-       * -------------------------------------------------------
-       * STEP 3 — PROFILE DATA
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         3. PROFILE
+      ======================================================== */
 
       const parsedAge = parseInt(age, 10);
 
-      const parsedWeight =
-        parseFloat(weightLbs);
+      /*
+       * NOTE:
+       * The existing database field is weight_lbs.
+       * For metric users we convert kg -> lbs before saving.
+       */
+      let weightInLbs = null;
+
+      const parsedWeight = parseFloat(weightLbs);
+
+      if (
+        Number.isFinite(parsedWeight) &&
+        parsedWeight > 0
+      ) {
+        weightInLbs =
+          unit === 'metric'
+            ? parsedWeight * 2.2046226218
+            : parsedWeight;
+      }
 
       let heightInches = null;
       let heightCm = null;
@@ -688,31 +776,27 @@ export default function Onboarding() {
         const calculated =
           feet * 12 + inches;
 
-        heightInches =
-          calculated > 0
-            ? calculated
-            : null;
+        if (calculated > 0) {
+          heightInches = calculated;
+        }
       } else {
-        const cm =
-          parseFloat(heightFt);
+        const cm = parseFloat(heightFt);
 
-        heightCm =
-          Number.isFinite(cm) && cm > 0
-            ? cm
-            : null;
+        if (
+          Number.isFinite(cm) &&
+          cm > 0
+        ) {
+          heightCm = cm;
+        }
       }
 
       const profileData = {
         id: user.id,
 
-        first_name:
-          firstName.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
 
-        last_name:
-          lastName.trim(),
-
-        training_type:
-          trainingType,
+        training_type: trainingType,
 
         fitness_level:
           level || 'intermediate',
@@ -749,9 +833,7 @@ export default function Onboarding() {
           gender || null,
 
         weight_lbs:
-          Number.isFinite(parsedWeight)
-            ? parsedWeight
-            : null,
+          weightInLbs,
 
         height_inches:
           heightInches,
@@ -772,7 +854,7 @@ export default function Onboarding() {
       );
 
       console.log(
-        '[ONBOARDING] Saving profile:',
+        '[ONBOARDING] PROFILE UPSERT START:',
         profileData
       );
 
@@ -788,7 +870,7 @@ export default function Onboarding() {
         );
 
       console.log(
-        '[ONBOARDING] Profile save response:',
+        '[ONBOARDING] PROFILE UPSERT RETURNED:',
         profileError
       );
 
@@ -801,11 +883,9 @@ export default function Onboarding() {
         'Profile saved. Preparing your program…'
       );
 
-      /*
-       * -------------------------------------------------------
-       * PROMPT DATA
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         4. PROMPT DATA
+      ======================================================== */
 
       const promptData = {
         gender,
@@ -815,28 +895,23 @@ export default function Onboarding() {
         heightFt,
         heightIn,
         unit,
-
         currentSkills,
         goalDescription,
         timeframe,
-
         equipment,
         requirements,
-
         fitnessGoals,
         weightGoals,
       };
 
       console.log(
-        '[ONBOARDING] Prompt data:',
+        '[ONBOARDING] PROMPT DATA READY:',
         promptData
       );
 
-      /*
-       * -------------------------------------------------------
-       * STEP 4 — PROGRAM STRUCTURE
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         5. PROGRAM STRUCTURE
+      ======================================================== */
 
       setGenerationStage(
         22,
@@ -853,67 +928,39 @@ export default function Onboarding() {
         '[ONBOARDING] STRUCTURE PROMPT CREATED.'
       );
 
-      console.log(
-        '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
-      );
-
-      console.log(
-        '[ONBOARDING] Function payload type: structure'
-      );
-
-      const structureResponse =
-        await supabase.functions.invoke(
-          'workout-generation',
+      const structureResult =
+        await invokeWorkoutGeneration(
+          'structure',
+          structurePrompt,
           {
-            body: {
-              type: 'structure',
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+              program_name: {
+                type: 'string',
+              },
 
-              prompt:
-                structurePrompt,
+              duration_weeks: {
+                type: 'number',
+              },
 
-              schema: {
+              macrocycle: {
                 type: 'object',
+                additionalProperties: true,
+              },
 
-                additionalProperties: false,
-
-                properties: {
-                  program_name: {
-                    type: 'string',
-                  },
-
-                  duration_weeks: {
-                    type: 'number',
-                  },
-
-                  macrocycle: {
-                    type: 'object',
-                    additionalProperties: true,
-                  },
-
-                  mesocycles: {
-                    type: 'array',
-                  },
-                },
-
-                required: [
-                  'program_name',
-                  'duration_weeks',
-                  'macrocycle',
-                  'mesocycles',
-                ],
+              mesocycles: {
+                type: 'array',
               },
             },
-          }
-        );
 
-      console.log(
-        '[ONBOARDING] STRUCTURE FUNCTION RETURNED:',
-        structureResponse
-      );
-
-      const structureResult =
-        normalizeFunctionResponse(
-          structureResponse,
+            required: [
+              'program_name',
+              'duration_weeks',
+              'macrocycle',
+              'mesocycles',
+            ],
+          },
           'workout-generation / structure'
         );
 
@@ -946,22 +993,17 @@ export default function Onboarding() {
 
       setGenerationStage(
         30,
-        `Program structure complete — ${mesocycles.length} training phase${
-          mesocycles.length === 1 ? '' : 's'
-        } found.`
+        'Program structure complete.'
       );
 
-      /*
-       * -------------------------------------------------------
-       * STEP 5 — MICROCYCLES
-       * -------------------------------------------------------
-       *
-       * We now know exactly how many AI generation operations
-       * need to happen.
-       *
-       * Progress from 30% to 85% is based ONLY on the number
-       * of microcycle calls that have actually completed.
-       */
+      console.log(
+        '[ONBOARDING] TOTAL TRAINING PHASES:',
+        mesocycles.length
+      );
+
+      /* ========================================================
+         6. MICROCYCLES
+      ======================================================== */
 
       const allMicrocycles = [];
 
@@ -980,32 +1022,40 @@ export default function Onboarding() {
 
         const phaseName =
           meso?.name ||
-          `training phase ${index + 1}`;
+          'Training phase ' + (index + 1);
 
-        const completedBefore =
-          index;
-
+        /*
+         * Percentage BEFORE the current phase starts.
+         *
+         * It intentionally stays here while Supabase/AI
+         * is processing this phase.
+         */
         const progressBefore =
           microcycleStart +
-          (completedBefore /
-            mesocycles.length) *
+          (index / mesocycles.length) *
             microcycleRange;
 
         setGenerationStage(
-          Math.round(progressBefore),
-          `Building ${phaseName}…`
+          progressBefore,
+          'Building ' +
+            phaseName +
+            '…'
         );
 
         console.log(
-          '------------------------------------------------'
+          '[ONBOARDING] ========================================'
         );
 
         console.log(
-          `[ONBOARDING] MICROcycle ${index + 1}/${mesocycles.length}`
+          '[ONBOARDING] MICROCYCLE START:',
+          index + 1,
+          'of',
+          mesocycles.length
         );
 
         console.log(
-          `[ONBOARDING] Phase: ${phaseName}`
+          '[ONBOARDING] PHASE:',
+          phaseName
         );
 
         const microPrompt =
@@ -1016,60 +1066,29 @@ export default function Onboarding() {
             meso
           );
 
-        console.log(
-          `[ONBOARDING] Microcycle prompt ${index + 1} created.`
-        );
-
-        console.log(
-          '[ONBOARDING] INVOKING SUPABASE FUNCTION: workout-generation'
-        );
-
-        console.log(
-          `[ONBOARDING] Function payload type: microcycle (${index + 1}/${mesocycles.length})`
-        );
-
-        const microResponse =
-          await supabase.functions.invoke(
-            'workout-generation',
+        const microResult =
+          await invokeWorkoutGeneration(
+            'microcycle',
+            microPrompt,
             {
-              body: {
-                type: 'microcycle',
-
-                prompt:
-                  microPrompt,
-
-                schema: {
-                  type: 'object',
-
-                  additionalProperties: false,
-
-                  properties: {
-                    microcycles: {
-                      type: 'array',
-                    },
-                  },
-
-                  required: [
-                    'microcycles',
-                  ],
+              type: 'object',
+              additionalProperties: true,
+              properties: {
+                microcycles: {
+                  type: 'array',
                 },
               },
-            }
+              required: [
+                'microcycles',
+              ],
+            },
+            'workout-generation / microcycle ' +
+              (index + 1)
           );
 
         console.log(
-          `[ONBOARDING] MICROcycle ${index + 1} FUNCTION RETURNED:`,
-          microResponse
-        );
-
-        const microResult =
-          normalizeFunctionResponse(
-            microResponse,
-            `workout-generation / microcycle ${index + 1}`
-          );
-
-        console.log(
-          `[ONBOARDING] MICROcycle ${index + 1} RESULT:`,
+          '[ONBOARDING] MICROCYLCE RESULT:',
+          index + 1,
           microResult
         );
 
@@ -1084,7 +1103,9 @@ export default function Onboarding() {
           !generatedMicrocycles.length
         ) {
           throw new Error(
-            `AI returned no workouts for ${phaseName}.`
+            'AI returned no workouts for ' +
+              phaseName +
+              '.'
           );
         }
 
@@ -1093,34 +1114,34 @@ export default function Onboarding() {
         );
 
         /*
-         * Only advance after this AI operation has actually
-         * completed successfully.
+         * ONLY after this operation has actually completed
+         * successfully do we advance the percentage.
          */
         const completed =
           index + 1;
 
         const completedProgress =
           microcycleStart +
-          (completed /
-            mesocycles.length) *
+          (completed / mesocycles.length) *
             microcycleRange;
 
         setGenerationStage(
-          Math.round(
-            completedProgress
-          ),
-          `${phaseName} complete (${completed}/${mesocycles.length}).`
+          completedProgress,
+          phaseName +
+            ' complete (' +
+            completed +
+            '/' +
+            mesocycles.length +
+            ').'
         );
 
         console.log(
-          `[ONBOARDING] MICROcycle ${index + 1} COMPLETE.`
+          '[ONBOARDING] MICROCYCLE COMPLETE:',
+          index + 1,
+          'of',
+          mesocycles.length
         );
       }
-
-      console.log(
-        '[ONBOARDING] ALL MICROCYCLES:',
-        allMicrocycles
-      );
 
       if (!allMicrocycles.length) {
         throw new Error(
@@ -1128,11 +1149,14 @@ export default function Onboarding() {
         );
       }
 
-      /*
-       * -------------------------------------------------------
-       * STEP 6 — SAVE PROGRAM
-       * -------------------------------------------------------
-       */
+      console.log(
+        '[ONBOARDING] ALL MICROCYCLES GENERATED:',
+        allMicrocycles.length
+      );
+
+      /* ========================================================
+         7. SAVE FINAL PROGRAM
+      ======================================================== */
 
       setGenerationStage(
         90,
@@ -1177,12 +1201,8 @@ export default function Onboarding() {
       };
 
       console.log(
-        '[ONBOARDING] FINAL PROGRAM PAYLOAD:',
+        '[ONBOARDING] PROGRAM INSERT START:',
         programPayload
-      );
-
-      console.log(
-        '[ONBOARDING] Saving workout program to Supabase...'
       );
 
       const {
@@ -1190,16 +1210,16 @@ export default function Onboarding() {
         error: programError,
       } = await supabase
         .from('workout_programs')
-        .insert(
-          programPayload
-        )
+        .insert(programPayload)
         .select()
         .single();
 
       console.log(
-        '[ONBOARDING] PROGRAM SAVE RESPONSE:',
-        savedProgram,
-        programError
+        '[ONBOARDING] PROGRAM INSERT RETURNED:',
+        {
+          savedProgram,
+          programError,
+        }
       );
 
       if (programError) {
@@ -1213,50 +1233,56 @@ export default function Onboarding() {
       }
 
       setGenerationStage(
-        95,
-        'Program saved successfully. Finishing up…'
+        93,
+        'Program saved successfully.'
       );
 
-      /*
-       * -------------------------------------------------------
-       * STEP 7 — CACHE REFRESH
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         8. CACHE REFRESH
+      ======================================================== */
 
       console.log(
-        '[ONBOARDING] Refreshing application data...'
+        '[ONBOARDING] CACHE REFRESH START'
       );
 
       try {
         await queryClientInstance.invalidateQueries();
+
+        console.log(
+          '[ONBOARDING] CACHE REFRESH COMPLETE'
+        );
+
+        setGenerationStage(
+          97,
+          'Finishing up your personalized program…'
+        );
       } catch (cacheError) {
-        /*
-         * Cache refresh should not make a successfully saved
-         * program look like a failed generation.
-         */
         console.warn(
-          '[ONBOARDING] Cache refresh warning:',
+          '[ONBOARDING] CACHE REFRESH WARNING:',
           cacheError
+        );
+
+        /*
+         * Cache refresh is not required for program creation
+         * to be successful.
+         */
+        setGenerationStage(
+          97,
+          'Program saved. Finishing up…'
         );
       }
 
-      /*
-       * -------------------------------------------------------
-       * COMPLETE
-       * -------------------------------------------------------
-       */
+      /* ========================================================
+         9. COMPLETE
+      ======================================================== */
 
       setGenerationStage(
         100,
         'Your personalized program is ready!'
       );
 
-      toast.success(
-        'Your personalized program is ready!'
-      );
-
       console.log(
-        '================================================'
+        '[ONBOARDING] ========================================'
       );
 
       console.log(
@@ -1264,21 +1290,31 @@ export default function Onboarding() {
       );
 
       console.log(
-        '================================================'
+        '[ONBOARDING] SAVED PROGRAM ID:',
+        savedProgram.id
+      );
+
+      console.log(
+        '[ONBOARDING] ========================================'
+      );
+
+      toast.success(
+        'Your personalized program is ready!'
       );
 
       /*
-       * Give React time to render the 100% state before
-       * navigating away.
+       * Let the user actually see 100%.
        */
-      await sleep(800);
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 800);
+      });
 
       navigate('/', {
         replace: true,
       });
     } catch (error) {
       console.error(
-        '================================================'
+        '[ONBOARDING] ========================================'
       );
 
       console.error(
@@ -1286,11 +1322,12 @@ export default function Onboarding() {
       );
 
       console.error(
+        '[ONBOARDING] ERROR:',
         error
       );
 
       console.error(
-        '================================================'
+        '[ONBOARDING] ========================================'
       );
 
       const message =
@@ -1299,32 +1336,24 @@ export default function Onboarding() {
           'Failed to generate your program. Please try again.'
         );
 
+      setGenerationError(message);
+
       setLoading(false);
       setProgress(0);
       setLoadingPhase('');
 
-      generationStartedRef.current =
-        false;
+      generationStartedRef.current = false;
 
       toast.error(message);
-
-      console.error(
-        '[ONBOARDING] USER-FACING ERROR:',
-        message
-      );
     }
   };
 
-  /* ==========================================================
+  /* ============================================================
      RENDER
-  ========================================================== */
+  ============================================================ */
 
   return (
     <div className="min-h-screen bg-background flex flex-col safe-top safe-bottom">
-      {/* ======================================================
-          PROGRESS INDICATOR
-      ====================================================== */}
-
       <div className="px-6 pt-4 pb-4">
         <div className="flex items-center gap-2 mb-2">
           {[0, 1, 2, 3, 4].map((index) => (
@@ -1342,25 +1371,16 @@ export default function Onboarding() {
       </div>
 
       <AnimatePresence mode="wait">
-        {/* ====================================================
+        {/* ======================================================
             STEP 0
-        ==================================================== */}
+        ====================================================== */}
 
         {step === 0 && (
           <motion.div
             key="welcome"
-            initial={{
-              opacity: 0,
-              x: 50,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            exit={{
-              opacity: 0,
-              x: -50,
-            }}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
             className="flex-1 flex flex-col px-6"
           >
             <h1 className="font-heading text-4xl font-bold mb-2 tracking-tight">
@@ -1391,9 +1411,7 @@ export default function Onboarding() {
                   placeholder="e.g. Alex"
                   value={firstName}
                   onChange={(event) =>
-                    setFirstName(
-                      event.target.value
-                    )
+                    setFirstName(event.target.value)
                   }
                   className="h-14 text-lg rounded-2xl"
                 />
@@ -1408,9 +1426,7 @@ export default function Onboarding() {
                   placeholder="e.g. Johnson"
                   value={lastName}
                   onChange={(event) =>
-                    setLastName(
-                      event.target.value
-                    )
+                    setLastName(event.target.value)
                   }
                   className="h-14 text-lg rounded-2xl"
                 />
@@ -1424,9 +1440,7 @@ export default function Onboarding() {
 
                 <CountrySelect
                   value={country}
-                  onChange={
-                    handleCountryChange
-                  }
+                  onChange={handleCountryChange}
                 />
               </div>
 
@@ -1458,28 +1472,21 @@ export default function Onboarding() {
                       value: 'imperial',
                       label: 'Imperial (lbs, ft)',
                     },
-                  ].map(
-                    ({
-                      value,
-                      label,
-                    }) => (
-                      <button
-                        type="button"
-                        key={value}
-                        onClick={() =>
-                          setUnit(value)
-                        }
-                        className={cn(
-                          'h-11 rounded-2xl border-2 text-sm font-semibold transition-all',
-                          unit === value
-                            ? 'border-primary bg-primary/10 text-foreground'
-                            : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
-                        )}
-                      >
-                        {label}
-                      </button>
-                    )
-                  )}
+                  ].map(({ value, label }) => (
+                    <button
+                      type="button"
+                      key={value}
+                      onClick={() => setUnit(value)}
+                      className={cn(
+                        'h-11 rounded-2xl border-2 text-sm font-semibold transition-all',
+                        unit === value
+                          ? 'border-primary bg-primary/10 text-foreground'
+                          : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1499,25 +1506,16 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ====================================================
+        {/* ======================================================
             STEP 1
-        ==================================================== */}
+        ====================================================== */}
 
         {step === 1 && (
           <motion.div
             key="training-type"
-            initial={{
-              opacity: 0,
-              x: 50,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            exit={{
-              opacity: 0,
-              x: -50,
-            }}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
             className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
@@ -1558,25 +1556,16 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ====================================================
+        {/* ======================================================
             STEP 2
-        ==================================================== */}
+        ====================================================== */}
 
         {step === 2 && (
           <motion.div
             key="bodystats"
-            initial={{
-              opacity: 0,
-              x: 50,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            exit={{
-              opacity: 0,
-              x: -50,
-            }}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
             className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
@@ -1595,29 +1584,22 @@ export default function Onboarding() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-3">
-                  {[
-                    'male',
-                    'female',
-                  ].map(
+                  {['male', 'female'].map(
                     (genderOption) => (
                       <button
                         type="button"
                         key={genderOption}
                         onClick={() =>
-                          setGender(
-                            genderOption
-                          )
+                          setGender(genderOption)
                         }
                         className={cn(
                           'h-12 rounded-2xl border-2 font-semibold text-sm capitalize transition-all',
-                          gender ===
-                            genderOption
+                          gender === genderOption
                             ? 'border-primary bg-primary/10 text-foreground'
                             : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30'
                         )}
                       >
-                        {genderOption ===
-                        'male'
+                        {genderOption === 'male'
                           ? '♂ Male'
                           : '♀ Female'}
                       </button>
@@ -1639,9 +1621,7 @@ export default function Onboarding() {
                     placeholder="e.g. 24"
                     value={age}
                     onChange={(event) =>
-                      setAge(
-                        event.target.value
-                      )
+                      setAge(event.target.value)
                     }
                     className="h-12 text-base"
                   />
@@ -1667,9 +1647,7 @@ export default function Onboarding() {
                     }
                     value={weightLbs}
                     onChange={(event) =>
-                      setWeightLbs(
-                        event.target.value
-                      )
+                      setWeightLbs(event.target.value)
                     }
                     className="h-12 text-base"
                   />
@@ -1688,9 +1666,7 @@ export default function Onboarding() {
                     placeholder="Height in cm (e.g. 178)"
                     value={heightFt}
                     onChange={(event) =>
-                      setHeightFt(
-                        event.target.value
-                      )
+                      setHeightFt(event.target.value)
                     }
                     className="h-12 text-base"
                   />
@@ -1703,9 +1679,7 @@ export default function Onboarding() {
                       placeholder="Feet (e.g. 5)"
                       value={heightFt}
                       onChange={(event) =>
-                        setHeightFt(
-                          event.target.value
-                        )
+                        setHeightFt(event.target.value)
                       }
                       className="h-12 text-base"
                     />
@@ -1717,9 +1691,7 @@ export default function Onboarding() {
                       placeholder="Inches (e.g. 10)"
                       value={heightIn}
                       onChange={(event) =>
-                        setHeightIn(
-                          event.target.value
-                        )
+                        setHeightIn(event.target.value)
                       }
                       className="h-12 text-base"
                     />
@@ -1741,28 +1713,20 @@ export default function Onboarding() {
                         iconName,
                       }) => {
                         const GoalIcon =
-                          GOAL_ICONS[
-                            iconName
-                          ] ||
+                          GOAL_ICONS[iconName] ||
                           Dumbbell;
 
                         const selected =
-                          fitnessGoals.includes(
-                            value
-                          );
+                          fitnessGoals.includes(value);
 
                         return (
                           <button
                             type="button"
                             key={value}
                             onClick={() =>
-                              toggleGoal(
-                                value
-                              )
+                              toggleGoal(value)
                             }
-                            aria-pressed={
-                              selected
-                            }
+                            aria-pressed={selected}
                             className={cn(
                               'flex items-center gap-2 p-3 rounded-2xl border-2 text-left transition-all',
                               selected
@@ -1810,25 +1774,16 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ====================================================
+        {/* ======================================================
             STEP 3
-        ==================================================== */}
+        ====================================================== */}
 
         {step === 3 && (
           <motion.div
             key="step3"
-            initial={{
-              opacity: 0,
-              x: 50,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            exit={{
-              opacity: 0,
-              x: -50,
-            }}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
             className="flex-1 flex flex-col px-6"
           >
             {hasSkills && (
@@ -1926,28 +1881,20 @@ export default function Onboarding() {
                           iconName,
                         }) => {
                           const GoalIcon =
-                            GOAL_ICONS[
-                              iconName
-                            ] ||
+                            GOAL_ICONS[iconName] ||
                             Dumbbell;
 
                           const selected =
-                            weightGoals.includes(
-                              value
-                            );
+                            weightGoals.includes(value);
 
                           return (
                             <button
                               type="button"
                               key={value}
                               onClick={() =>
-                                toggleWeightGoal(
-                                  value
-                                )
+                                toggleWeightGoal(value)
                               }
-                              aria-pressed={
-                                selected
-                              }
+                              aria-pressed={selected}
                               className={cn(
                                 'flex items-center gap-2 p-3 rounded-2xl border-2 text-left transition-all',
                                 selected
@@ -1990,28 +1937,20 @@ export default function Onboarding() {
                       iconName,
                     }) => {
                       const GoalIcon =
-                        GOAL_ICONS[
-                          iconName
-                        ] ||
+                        GOAL_ICONS[iconName] ||
                         Dumbbell;
 
                       const selected =
-                        weightGoals.includes(
-                          value
-                        );
+                        weightGoals.includes(value);
 
                       return (
                         <button
                           type="button"
                           key={value}
                           onClick={() =>
-                            toggleWeightGoal(
-                              value
-                            )
+                            toggleWeightGoal(value)
                           }
-                          aria-pressed={
-                            selected
-                          }
+                          aria-pressed={selected}
                           className={cn(
                             'flex items-center gap-2 p-4 rounded-2xl border-2 text-left transition-all',
                             selected
@@ -2054,25 +1993,16 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* ====================================================
+        {/* ======================================================
             STEP 4
-        ==================================================== */}
+        ====================================================== */}
 
         {step === 4 && (
           <motion.div
             key="step4"
-            initial={{
-              opacity: 0,
-              x: 50,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            exit={{
-              opacity: 0,
-              x: -50,
-            }}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
             className="flex-1 flex flex-col px-6"
           >
             <div className="flex items-center gap-2 mb-1">
@@ -2080,12 +2010,10 @@ export default function Onboarding() {
 
               <h2 className="font-heading text-2xl font-bold">
                 {hasSkills
-                  ? `Tell us your goals, ${
-                      firstName || 'Athlete'
-                    }`
-                  : `Final details, ${
-                      firstName || 'Athlete'
-                    }`}
+                  ? 'Tell us your goals, ' +
+                    (firstName || 'Athlete')
+                  : 'Final details, ' +
+                    (firstName || 'Athlete')}
               </h2>
             </div>
 
@@ -2101,9 +2029,7 @@ export default function Onboarding() {
                   <Textarea
                     value={goalDescription}
                     onChange={(event) =>
-                      setGoalDescription(
-                        event.target.value
-                      )
+                      setGoalDescription(event.target.value)
                     }
                     placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
                     className="min-h-[140px] text-sm resize-none bg-card border-border focus:border-primary rounded-2xl p-4 leading-relaxed"
@@ -2118,9 +2044,7 @@ export default function Onboarding() {
                     <Textarea
                       value={timeframe}
                       onChange={(event) =>
-                        setTimeframe(
-                          event.target.value
-                        )
+                        setTimeframe(event.target.value)
                       }
                       placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
                       className="min-h-[60px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
@@ -2149,17 +2073,13 @@ export default function Onboarding() {
               <div className="bg-muted/50 rounded-2xl p-4 border border-border">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   🏋️ Available equipment{' '}
-                  <span className="text-destructive">
-                    *
-                  </span>
+                  <span className="text-destructive">*</span>
                 </p>
 
                 <Textarea
                   value={equipment}
                   onChange={(event) =>
-                    setEquipment(
-                      event.target.value
-                    )
+                    setEquipment(event.target.value)
                   }
                   placeholder={
                     hasSkills
@@ -2171,8 +2091,8 @@ export default function Onboarding() {
                 />
 
                 <p className="text-[10px] text-muted-foreground mt-1.5">
-                  List everything you have access to —
-                  this is required.
+                  List everything you have access to — this
+                  is required.
                 </p>
               </div>
 
@@ -2184,9 +2104,7 @@ export default function Onboarding() {
                 <Textarea
                   value={requirements}
                   onChange={(event) =>
-                    setRequirements(
-                      event.target.value
-                    )
+                    setRequirements(event.target.value)
                   }
                   placeholder='e.g. "I can train 4 days a week, about 60 min per session. I want to focus on my chest and shoulders."'
                   className="min-h-[80px] text-sm resize-none bg-card border-border focus:border-primary rounded-xl p-3 leading-relaxed"
@@ -2202,7 +2120,7 @@ export default function Onboarding() {
             </div>
 
             {/* ==================================================
-                GENERATION AREA
+                GENERATION STATUS
             ================================================== */}
 
             {loading && (
@@ -2226,20 +2144,35 @@ export default function Onboarding() {
                   <div
                     className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
                     style={{
-                      width: `${Math.max(
-                        0,
-                        Math.min(
-                          100,
-                          progress
-                        )
-                      )}%`,
+                      width:
+                        Math.max(
+                          0,
+                          Math.min(100, progress)
+                        ) + '%',
                     }}
                   />
                 </div>
 
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  Progress advances when each generation
-                  stage actually completes.
+                  The percentage advances only when a
+                  generation step actually completes.
+                </p>
+              </div>
+            )}
+
+            {generationError && !loading && (
+              <div className="mt-5 mb-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                <p className="text-sm font-semibold text-destructive mb-1">
+                  Program generation failed
+                </p>
+
+                <p className="text-xs text-muted-foreground break-words">
+                  {generationError}
+                </p>
+
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Check the browser console for the detailed
+                  Supabase request log.
                 </p>
               </div>
             )}
@@ -2254,13 +2187,6 @@ export default function Onboarding() {
                 <ChevronLeft className="w-5 h-5" />
               </button>
 
-              {/*
-               * IMPORTANT:
-               *
-               * This is intentionally a native HTML button.
-               * There is no custom Button component between the
-               * browser click and handleGenerate().
-               */}
               <button
                 type="button"
                 id="build-my-program-button"
@@ -2272,7 +2198,7 @@ export default function Onboarding() {
                 onClick={handleGenerate}
                 onPointerDown={() => {
                   console.log(
-                    '[ONBOARDING] Build button pointer down.'
+                    '[ONBOARDING] BUILD BUTTON POINTER DOWN'
                   );
                 }}
                 className={cn(
@@ -2293,26 +2219,27 @@ export default function Onboarding() {
                   </span>
                 ) : (
                   <>
-                    Build My Program
+                    {generationError
+                      ? 'Try Again'
+                      : 'Build My Program'}
+
                     <Sparkles className="ml-2 w-5 h-5" />
                   </>
                 )}
               </button>
             </div>
 
-            {!loading &&
-              !generateValid && (
-                <p className="text-xs text-muted-foreground text-center mb-6">
-                  {hasSkills &&
-                  goalDescription.trim().length < 10
-                    ? 'Add a little more detail about your goals to continue.'
-                    : 'Enter your available equipment to continue.'}
-                </p>
-              )}
+            {!loading && !generateValid && (
+              <p className="text-xs text-muted-foreground text-center mb-6">
+                {hasSkills &&
+                goalDescription.trim().length < 10
+                  ? 'Add a little more detail about your goals to continue.'
+                  : 'Enter your available equipment to continue.'}
+              </p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
 }
-```
