@@ -1,5 +1,4 @@
-```jsx
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { queryClientInstance } from '@/lib/query-client';
 import { Button } from '@/components/ui/button';
@@ -21,7 +20,11 @@ import {
   PersonStanding,
   Globe,
 } from 'lucide-react';
-import { COUNTRIES, LANGUAGES, getCountryDefaults } from '@/lib/countries';
+import {
+  COUNTRIES,
+  LANGUAGES,
+  getCountryDefaults,
+} from '@/lib/countries';
 import { useAppSettings } from '@/lib/AppSettingsContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -33,6 +36,8 @@ import {
   buildMicrocyclePrompt,
 } from '@/lib/trainingTypes';
 import { toast } from 'sonner';
+
+const TOTAL_STEPS = 5;
 
 const levels = [
   {
@@ -95,8 +100,31 @@ function SearchSelect({
     )
     .slice(0, 200);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const handleOutsideClick = (event) => {
+      if (!event.target.closest('[data-search-select]')) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener(
+        'mousedown',
+        handleOutsideClick
+      );
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      data-search-select
+    >
       <button
         type="button"
         onClick={() => {
@@ -115,13 +143,18 @@ function SearchSelect({
           {value || placeholder}
         </span>
 
-        <span className="text-muted-foreground text-xs">
+        <span
+          className={cn(
+            'text-muted-foreground text-xs transition-transform',
+            open && 'rotate-180'
+          )}
+        >
           ▾
         </span>
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="absolute z-[100] top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           <div className="p-2 border-b border-border">
             <input
               autoFocus
@@ -183,8 +216,31 @@ function CountrySelect({
       .includes(search.toLowerCase())
   );
 
+  useEffect(() => {
+    if (!open) return;
+
+    const handleOutsideClick = (event) => {
+      if (!event.target.closest('[data-country-select]')) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener(
+        'mousedown',
+        handleOutsideClick
+      );
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      data-country-select
+    >
       <button
         type="button"
         onClick={() => {
@@ -203,13 +259,18 @@ function CountrySelect({
           {selected?.name || 'Select your country…'}
         </span>
 
-        <span className="text-muted-foreground text-xs">
+        <span
+          className={cn(
+            'text-muted-foreground text-xs transition-transform',
+            open && 'rotate-180'
+          )}
+        >
           ▾
         </span>
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="absolute z-[100] top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           <div className="p-2 border-b border-border">
             <input
               autoFocus
@@ -261,17 +322,51 @@ function getErrorMessage(error, fallback) {
     return error;
   }
 
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
   if (error.message) {
     return error.message;
   }
 
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return fallback;
+  if (error.error) {
+    return getErrorMessage(error.error, fallback);
   }
+
+  try {
+    const parsed =
+      typeof error === 'string'
+        ? error
+        : JSON.stringify(error);
+
+    if (parsed && parsed !== '{}') {
+      return parsed;
+    }
+  } catch {
+    // Ignore JSON serialization failures.
+  }
+
+  return fallback;
 }
 
+/**
+ * Supabase Edge Functions return:
+ *
+ * {
+ *   data,
+ *   error
+ * }
+ *
+ * The Edge Function itself may also return:
+ *
+ * {
+ *   success: false,
+ *   error: ...
+ * }
+ *
+ * This normalizes both cases into the actual AI result.
+ */
 function normalizeFunctionResponse(response) {
   if (!response) {
     throw new Error(
@@ -297,23 +392,58 @@ function normalizeFunctionResponse(response) {
   }
 
   if (data.success === false) {
-    let message =
-      data.error ||
-      data.message ||
-      'AI generation failed.';
+    throw new Error(
+      getErrorMessage(
+        data.error || data.message,
+        'AI generation failed.'
+      )
+    );
+  }
 
-    if (typeof message === 'object') {
-      try {
-        message = JSON.stringify(message);
-      } catch {
-        message = 'AI generation failed.';
-      }
-    }
-
-    throw new Error(message);
+  if (data.error && data.success !== true) {
+    throw new Error(
+      getErrorMessage(
+        data.error,
+        'AI generation failed.'
+      )
+    );
   }
 
   return data.result ?? data;
+}
+
+function parsePositiveNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    String(value).trim() === ''
+  ) {
+    return null;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return null;
+  }
+
+  return number;
+}
+
+function parseInteger(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    String(value).trim() === ''
+  ) {
+    return null;
+  }
+
+  const number = Number.parseInt(value, 10);
+
+  return Number.isFinite(number)
+    ? number
+    : null;
 }
 
 export default function Onboarding() {
@@ -329,20 +459,14 @@ export default function Onboarding() {
   const [language, setLanguage] = useState('English');
   const [unit, setUnit] = useState('imperial');
 
-  const [trainingType, setTrainingType] =
-    useState('');
-
+  const [trainingType, setTrainingType] = useState('');
   const [level, setLevel] = useState('');
 
   const [goalDescription, setGoalDescription] =
     useState('');
 
-  const [timeframe, setTimeframe] =
-    useState('');
-
-  const [equipment, setEquipment] =
-    useState('');
-
+  const [timeframe, setTimeframe] = useState('');
+  const [equipment, setEquipment] = useState('');
   const [requirements, setRequirements] =
     useState('');
 
@@ -352,15 +476,14 @@ export default function Onboarding() {
     useState('');
 
   const progressTimer = useRef(null);
+  const generationStartedRef = useRef(false);
 
   const [age, setAge] = useState('');
-  const [weightLbs, setWeightLbs] =
-    useState('');
+  const [weight, setWeight] = useState('');
 
-  const [heightFt, setHeightFt] =
-    useState('');
-  const [heightIn, setHeightIn] =
-    useState('');
+  const [heightFt, setHeightFt] = useState('');
+  const [heightIn, setHeightIn] = useState('');
+  const [heightCm, setHeightCm] = useState('');
 
   const [fitnessGoals, setFitnessGoals] =
     useState([]);
@@ -368,8 +491,7 @@ export default function Onboarding() {
   const [currentSkills, setCurrentSkills] =
     useState('');
 
-  const [gender, setGender] =
-    useState('');
+  const [gender, setGender] = useState('');
 
   const [weightGoals, setWeightGoals] =
     useState([]);
@@ -383,19 +505,27 @@ export default function Onboarding() {
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
-  const handleCountryChange = (code) => {
-    setCountry(code);
+  const handleCountryChange = useCallback(
+    (code) => {
+      setCountry(code);
 
-    const defaults =
-      getCountryDefaults(code);
+      const defaults =
+        getCountryDefaults(code);
 
-    if (defaults) {
-      setLanguage(defaults.language);
-      setUnit(defaults.unit);
-    }
-  };
+      if (defaults) {
+        setLanguage(
+          defaults.language || 'English'
+        );
 
-  const toggleGoal = (value) => {
+        setUnit(
+          defaults.unit || 'imperial'
+        );
+      }
+    },
+    []
+  );
+
+  const toggleGoal = useCallback((value) => {
     setFitnessGoals((previous) =>
       previous.includes(value)
         ? previous.filter(
@@ -403,29 +533,59 @@ export default function Onboarding() {
           )
         : [...previous, value]
     );
-  };
+  }, []);
 
-  const toggleWeightGoal = (value) => {
-    setWeightGoals((previous) =>
-      previous.includes(value)
-        ? previous.filter(
-            (goal) => goal !== value
-          )
-        : [...previous, value]
-    );
-  };
+  const toggleWeightGoal = useCallback(
+    (value) => {
+      setWeightGoals((previous) =>
+        previous.includes(value)
+          ? previous.filter(
+              (goal) => goal !== value
+            )
+          : [...previous, value]
+      );
+    },
+    []
+  );
 
+  /**
+   * Keep the browser back button synchronized
+   * with onboarding steps without creating a
+   * new history entry every render.
+   */
   useEffect(() => {
-    if (step === 0) return;
+    const initialState = window.history.state;
 
-    window.history.pushState(
-      { onboardingStep: step },
-      ''
-    );
+    if (
+      !initialState ||
+      initialState.onboardingFlow !== true
+    ) {
+      window.history.replaceState(
+        {
+          ...initialState,
+          onboardingFlow: true,
+          onboardingStep: 0,
+        },
+        ''
+      );
+    }
 
-    const handlePopState = () => {
-      setStep((current) =>
-        Math.max(0, current - 1)
+    const handlePopState = (event) => {
+      const browserStep =
+        Number.isInteger(
+          event.state?.onboardingStep
+        )
+          ? event.state.onboardingStep
+          : Math.max(0, step - 1);
+
+      setStep(
+        Math.max(
+          0,
+          Math.min(
+            TOTAL_STEPS - 1,
+            browserStep
+          )
+        )
       );
     };
 
@@ -445,37 +605,83 @@ export default function Onboarding() {
   useEffect(() => {
     return () => {
       if (progressTimer.current) {
-        clearInterval(progressTimer.current);
+        clearInterval(
+          progressTimer.current
+        );
       }
     };
   }, []);
 
-  const runProgressTo = (target) => {
-    if (progressTimer.current) {
-      clearInterval(progressTimer.current);
-    }
+  const goToStep = useCallback(
+    (nextStep) => {
+      if (loading) return;
 
-    progressTimer.current =
-      setInterval(() => {
-        setProgress((current) => {
-          if (current >= target - 0.5) {
-            return current;
-          }
+      const safeStep = Math.max(
+        0,
+        Math.min(
+          TOTAL_STEPS - 1,
+          nextStep
+        )
+      );
 
-          const remaining =
-            target - current;
+      if (safeStep === step) return;
 
-          return Math.min(
-            current +
-              Math.max(
-                remaining * 0.04,
-                0.1
-              ),
-            target - 0.5
-          );
-        });
-      }, 400);
-  };
+      window.history.pushState(
+        {
+          onboardingFlow: true,
+          onboardingStep: safeStep,
+        },
+        ''
+      );
+
+      setStep(safeStep);
+
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+    },
+    [loading, step]
+  );
+
+  const runProgressTo = useCallback(
+    (target) => {
+      if (progressTimer.current) {
+        clearInterval(
+          progressTimer.current
+        );
+      }
+
+      progressTimer.current =
+        setInterval(() => {
+          setProgress((current) => {
+            if (current >= target) {
+              if (progressTimer.current) {
+                clearInterval(
+                  progressTimer.current
+                );
+              }
+
+              return target;
+            }
+
+            const remaining =
+              target - current;
+
+            const increment = Math.max(
+              remaining * 0.04,
+              0.1
+            );
+
+            return Math.min(
+              current + increment,
+              target
+            );
+          });
+        }, 400);
+    },
+    []
+  );
 
   const step3Valid = hasSkills
     ? Boolean(
@@ -490,15 +696,80 @@ export default function Onboarding() {
     (!hasSkills ||
       goalDescription.trim().length >= 10);
 
+  /**
+   * Generate the complete program.
+   *
+   * Important fixes:
+   * - Prevents double-click generation.
+   * - Correctly handles Supabase invoke errors.
+   * - Correctly handles metric weight.
+   * - Correctly handles metric height.
+   * - Validates every generated phase.
+   * - Does not save an incomplete program.
+   * - Clears progress timers on success/failure.
+   */
   const handleGenerate = async () => {
-    console.log(
-      '[ONBOARDING] Build My Program clicked'
-    );
+    if (
+      loading ||
+      generationStartedRef.current
+    ) {
+      return;
+    }
 
-    if (loading) {
-      console.log(
-        '[ONBOARDING] Generation already running'
+    if (!country) {
+      toast.error(
+        'Please select your country.'
       );
+      goToStep(0);
+      return;
+    }
+
+    if (!trainingType) {
+      toast.error(
+        'Please select your training type.'
+      );
+      goToStep(1);
+      return;
+    }
+
+    if (!gender) {
+      toast.error(
+        'Please select your gender.'
+      );
+      goToStep(2);
+      return;
+    }
+
+    if (
+      hasSkills &&
+      fitnessGoals.length === 0
+    ) {
+      toast.error(
+        'Please select at least one goal.'
+      );
+      goToStep(2);
+      return;
+    }
+
+    if (
+      hasSkills &&
+      !level
+    ) {
+      toast.error(
+        'Please select your training level.'
+      );
+      goToStep(3);
+      return;
+    }
+
+    if (
+      hasWeightGoals &&
+      weightGoals.length === 0
+    ) {
+      toast.error(
+        'Please select at least one weight-training goal.'
+      );
+      goToStep(3);
       return;
     }
 
@@ -519,6 +790,7 @@ export default function Onboarding() {
       return;
     }
 
+    generationStartedRef.current = true;
     setLoading(true);
     setProgress(5);
     setLoadingPhase(
@@ -531,10 +803,6 @@ export default function Onboarding() {
         language,
         unit,
       });
-
-      console.log(
-        '[ONBOARDING] Getting authenticated user...'
-      );
 
       const {
         data: { user },
@@ -551,25 +819,75 @@ export default function Onboarding() {
         );
       }
 
-      console.log(
-        '[ONBOARDING] Authenticated user:',
-        user.id
-      );
+      /*
+       * ------------------------------------------
+       * NORMALIZE BODY MEASUREMENTS
+       * ------------------------------------------
+       */
 
-      const heightInches =
-        unit === 'imperial'
-          ? (parseInt(heightFt, 10) || 0) *
-              12 +
-            (parseInt(heightIn, 10) || 0)
-          : 0;
-
-      const heightCm =
-        unit === 'metric'
-          ? parseFloat(heightFt) || null
-          : null;
+      const parsedAge =
+        parseInteger(age);
 
       const parsedWeight =
-        parseFloat(weightLbs);
+        parsePositiveNumber(weight);
+
+      let weightKg = null;
+      let weightLbs = null;
+
+      if (
+        parsedWeight !== null
+      ) {
+        if (unit === 'metric') {
+          weightKg = parsedWeight;
+          weightLbs =
+            parsedWeight * 2.2046226218;
+        } else {
+          weightLbs = parsedWeight;
+          weightKg =
+            parsedWeight / 2.2046226218;
+        }
+      }
+
+      let heightInches = null;
+      let normalizedHeightCm = null;
+
+      if (unit === 'imperial') {
+        const feet =
+          parsePositiveNumber(heightFt) ||
+          0;
+
+        const inches =
+          parsePositiveNumber(heightIn) ||
+          0;
+
+        const totalInches =
+          feet * 12 + inches;
+
+        if (totalInches > 0) {
+          heightInches = totalInches;
+          normalizedHeightCm =
+            totalInches * 2.54;
+        }
+      } else {
+        const cm =
+          parsePositiveNumber(heightCm);
+
+        if (cm !== null) {
+          normalizedHeightCm = cm;
+          heightInches =
+            cm / 2.54;
+        }
+      }
+
+      /*
+       * ------------------------------------------
+       * SAVE USER PROFILE
+       * ------------------------------------------
+       */
+
+      setLoadingPhase(
+        'Saving your profile…'
+      );
 
       const profileData = {
         id: user.id,
@@ -609,25 +927,28 @@ export default function Onboarding() {
         current_skills:
           currentSkills.trim(),
 
-        age:
-          parseInt(age, 10) || null,
+        age: parsedAge,
 
-        gender: gender || null,
+        gender:
+          gender || null,
 
+        /*
+         * Store the database's existing
+         * weight_lbs field in pounds regardless
+         * of the user's selected display unit.
+         */
         weight_lbs:
-          Number.isFinite(parsedWeight)
-            ? parsedWeight
-            : null,
+          weightLbs,
 
+        /*
+         * Store height in both representations
+         * so the profile remains normalized.
+         */
         height_inches:
-          unit === 'imperial'
-            ? heightInches || null
-            : null,
+          heightInches,
 
         height_cm:
-          unit === 'metric'
-            ? heightCm
-            : null,
+          normalizedHeightCm,
 
         country,
         language,
@@ -636,65 +957,95 @@ export default function Onboarding() {
         onboarded: true,
       };
 
-      setLoadingPhase(
-        'Saving your profile…'
-      );
-
-      console.log(
-        '[ONBOARDING] Saving profile...'
-      );
-
       const {
         error: profileError,
       } = await supabase
         .from('profiles')
-        .upsert(profileData);
+        .upsert(profileData, {
+          onConflict: 'id',
+        });
 
       if (profileError) {
-        console.error(
-          '[ONBOARDING] Profile error:',
-          profileError
-        );
-
         throw profileError;
       }
 
-      console.log(
-        '[ONBOARDING] Profile saved'
-      );
+      /*
+       * ------------------------------------------
+       * PROMPT DATA
+       * ------------------------------------------
+       *
+       * Keep the user's selected display values
+       * for the AI prompt, while also supplying
+       * normalized values where useful.
+       */
 
       const promptData = {
         gender,
         level,
-        age,
-        weightLbs,
+
+        age:
+          parsedAge !== null
+            ? String(parsedAge)
+            : '',
+
+        weightLbs:
+          weightLbs !== null
+            ? String(
+                Number(weightLbs.toFixed(2))
+              )
+            : '',
+
+        weightKg:
+          weightKg !== null
+            ? String(
+                Number(weightKg.toFixed(2))
+              )
+            : '',
+
         heightFt,
         heightIn,
+        heightCm,
+
+        normalizedHeightCm:
+          normalizedHeightCm !== null
+            ? String(
+                Number(
+                  normalizedHeightCm.toFixed(1)
+                )
+              )
+            : '',
+
         unit,
 
-        currentSkills,
-        goalDescription,
-        timeframe,
+        currentSkills:
+          currentSkills.trim(),
 
-        equipment,
-        requirements,
+        goalDescription:
+          goalDescription.trim(),
+
+        timeframe:
+          timeframe.trim(),
+
+        equipment:
+          equipment.trim(),
+
+        requirements:
+          requirements.trim(),
 
         fitnessGoals,
         weightGoals,
       };
 
-      // ---------------------------------------------
-      // PHASE 1: PROGRAM STRUCTURE
-      // ---------------------------------------------
+      /*
+       * ------------------------------------------
+       * PHASE 1: PROGRAM STRUCTURE
+       * ------------------------------------------
+       */
 
       runProgressTo(25);
 
       setLoadingPhase(
         'Designing your program structure…'
-      );
-
-      console.log(
-        '[ONBOARDING] Calling workout-generation: structure'
       );
 
       const structurePrompt =
@@ -709,13 +1060,10 @@ export default function Onboarding() {
           {
             body: {
               type: 'structure',
-
-              prompt:
-                structurePrompt,
+              prompt: structurePrompt,
 
               schema: {
                 type: 'object',
-
                 additionalProperties: false,
 
                 properties: {
@@ -748,20 +1096,10 @@ export default function Onboarding() {
           }
         );
 
-      console.log(
-        '[ONBOARDING] Structure response:',
-        structureResponse
-      );
-
       const structureResult =
         normalizeFunctionResponse(
           structureResponse
         );
-
-      console.log(
-        '[ONBOARDING] Structure result:',
-        structureResult
-      );
 
       if (
         !structureResult ||
@@ -786,9 +1124,30 @@ export default function Onboarding() {
         );
       }
 
-      // ---------------------------------------------
-      // PHASE 2: MICROCYCLES
-      // ---------------------------------------------
+      /*
+       * Validate that every phase has enough
+       * information to generate a microcycle.
+       */
+      const invalidMesoIndex =
+        mesocycles.findIndex(
+          (meso) =>
+            !meso ||
+            typeof meso !== 'object'
+        );
+
+      if (invalidMesoIndex !== -1) {
+        throw new Error(
+          `AI returned an invalid training phase at phase ${
+            invalidMesoIndex + 1
+          }. Please try again.`
+        );
+      }
+
+      /*
+       * ------------------------------------------
+       * PHASE 2: MICROCYCLES
+       * ------------------------------------------
+       */
 
       const allMicrocycles = [];
 
@@ -808,15 +1167,12 @@ export default function Onboarding() {
 
         runProgressTo(target);
 
-        setLoadingPhase(
-          `Building ${
-            meso?.name ||
-            `training phase ${index + 1}`
-          }…`
-        );
+        const phaseName =
+          meso?.name ||
+          `training phase ${index + 1}`;
 
-        console.log(
-          `[ONBOARDING] Calling workout-generation: microcycle ${index + 1}/${mesocycles.length}`
+        setLoadingPhase(
+          `Building ${phaseName}…`
         );
 
         const microPrompt =
@@ -833,13 +1189,10 @@ export default function Onboarding() {
             {
               body: {
                 type: 'microcycle',
-
-                prompt:
-                  microPrompt,
+                prompt: microPrompt,
 
                 schema: {
                   type: 'object',
-
                   additionalProperties: false,
 
                   properties: {
@@ -855,11 +1208,6 @@ export default function Onboarding() {
               },
             }
           );
-
-        console.log(
-          `[ONBOARDING] Microcycle ${index + 1} response:`,
-          microResponse
-        );
 
         const microResult =
           normalizeFunctionResponse(
@@ -877,10 +1225,7 @@ export default function Onboarding() {
           !generatedMicrocycles.length
         ) {
           throw new Error(
-            `AI returned no workouts for ${
-              meso?.name ||
-              `training phase ${index + 1}`
-            }.`
+            `AI returned no workouts for ${phaseName}.`
           );
         }
 
@@ -889,14 +1234,17 @@ export default function Onboarding() {
         );
       }
 
-      console.log(
-        '[ONBOARDING] All microcycles generated:',
-        allMicrocycles
-      );
+      if (!allMicrocycles.length) {
+        throw new Error(
+          'No workouts were generated. Please try again.'
+        );
+      }
 
-      // ---------------------------------------------
-      // SAVE COMPLETE PROGRAM
-      // ---------------------------------------------
+      /*
+       * ------------------------------------------
+       * SAVE COMPLETE PROGRAM
+       * ------------------------------------------
+       */
 
       if (progressTimer.current) {
         clearInterval(
@@ -908,10 +1256,6 @@ export default function Onboarding() {
 
       setLoadingPhase(
         'Saving your personalized program…'
-      );
-
-      console.log(
-        '[ONBOARDING] Saving workout program...'
       );
 
       const programPayload = {
@@ -948,22 +1292,26 @@ export default function Onboarding() {
         .single();
 
       if (programError) {
-        console.error(
-          '[ONBOARDING] Program database error:',
-          programError
-        );
-
         throw programError;
       }
 
-      console.log(
-        '[ONBOARDING] Program saved:',
-        savedProgram
-      );
+      if (!savedProgram) {
+        throw new Error(
+          'The program was generated but could not be saved.'
+        );
+      }
 
-      // ---------------------------------------------
-      // COMPLETE
-      // ---------------------------------------------
+      /*
+       * ------------------------------------------
+       * COMPLETE
+       * ------------------------------------------
+       */
+
+      if (progressTimer.current) {
+        clearInterval(
+          progressTimer.current
+        );
+      }
 
       setProgress(100);
 
@@ -975,10 +1323,6 @@ export default function Onboarding() {
 
       toast.success(
         'Your personalized program is ready!'
-      );
-
-      console.log(
-        '[ONBOARDING] PROGRAM GENERATION COMPLETE'
       );
 
       setTimeout(() => {
@@ -996,8 +1340,10 @@ export default function Onboarding() {
         clearInterval(
           progressTimer.current
         );
+        progressTimer.current = null;
       }
 
+      generationStartedRef.current = false;
       setLoading(false);
       setProgress(0);
       setLoadingPhase('');
@@ -1009,19 +1355,17 @@ export default function Onboarding() {
         );
 
       toast.error(message);
-
-      console.error(
-        '[ONBOARDING] User-facing error:',
-        message
-      );
     }
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col safe-top safe-bottom">
+      {/* Progress */}
       <div className="px-6 pt-4 pb-4">
         <div className="flex items-center gap-2 mb-2">
-          {[0, 1, 2, 3, 4].map((index) => (
+          {Array.from({
+            length: TOTAL_STEPS,
+          }).map((_, index) => (
             <div
               key={index}
               className={cn(
@@ -1036,7 +1380,9 @@ export default function Onboarding() {
       </div>
 
       <AnimatePresence mode="wait">
-        {/* STEP 0 */}
+        {/* =========================================
+            STEP 0 — WELCOME
+        ========================================= */}
         {step === 0 && (
           <motion.div
             key="welcome"
@@ -1052,7 +1398,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6"
+            className="flex-1 flex flex-col px-6 overflow-y-auto"
           >
             <h1 className="font-heading text-4xl font-bold mb-2 tracking-tight">
               Welcome to{' '}
@@ -1087,6 +1433,7 @@ export default function Onboarding() {
                     )
                   }
                   className="h-14 text-lg rounded-2xl"
+                  autoComplete="given-name"
                 />
               </div>
 
@@ -1104,6 +1451,7 @@ export default function Onboarding() {
                     )
                   }
                   className="h-14 text-lg rounded-2xl"
+                  autoComplete="family-name"
                 />
               </div>
 
@@ -1178,13 +1526,13 @@ export default function Onboarding() {
             <Button
               type="button"
               size="lg"
-              className="w-full h-14 text-lg font-heading font-semibold mb-8 mt-4"
+              className="w-full h-14 text-lg font-heading font-semibold mb-8 mt-6"
               disabled={
                 !firstName.trim() ||
                 !country
               }
               onClick={() =>
-                setStep(1)
+                goToStep(1)
               }
             >
               Get Started
@@ -1193,7 +1541,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* STEP 1 */}
+        {/* =========================================
+            STEP 1 — TRAINING TYPE
+        ========================================= */}
         {step === 1 && (
           <motion.div
             key="training-type"
@@ -1209,7 +1559,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6"
+            className="flex-1 flex flex-col px-6 overflow-y-auto"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
               Choose Your Path
@@ -1227,14 +1577,14 @@ export default function Onboarding() {
               />
             </div>
 
-            <div className="flex gap-3 mb-8 mt-4">
+            <div className="flex gap-3 mb-8 mt-6">
               <Button
                 type="button"
                 variant="outline"
                 size="lg"
                 className="h-14"
                 onClick={() =>
-                  setStep(0)
+                  goToStep(0)
                 }
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1246,7 +1596,7 @@ export default function Onboarding() {
                 className="flex-1 h-14 text-lg font-heading font-semibold"
                 disabled={!trainingType}
                 onClick={() =>
-                  setStep(2)
+                  goToStep(2)
                 }
               >
                 Continue
@@ -1256,7 +1606,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* STEP 2 */}
+        {/* =========================================
+            STEP 2 — BODY STATS
+        ========================================= */}
         {step === 2 && (
           <motion.div
             key="bodystats"
@@ -1272,7 +1624,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6"
+            className="flex-1 flex flex-col px-6 overflow-y-auto"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
               About You
@@ -1284,6 +1636,7 @@ export default function Onboarding() {
             </p>
 
             <div className="space-y-4 flex-1">
+              {/* Gender */}
               <div>
                 <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">
                   Gender
@@ -1321,6 +1674,7 @@ export default function Onboarding() {
                 </div>
               </div>
 
+              {/* Age + Weight */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 font-medium">
@@ -1329,6 +1683,8 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
+                    min="1"
+                    max="120"
                     placeholder="e.g. 24"
                     value={age}
                     onChange={(event) =>
@@ -1337,14 +1693,14 @@ export default function Onboarding() {
                       )
                     }
                     className="h-12 text-base"
+                    inputMode="numeric"
                   />
                 </div>
 
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 font-medium">
                     Weight (
-                    {unit ===
-                    'metric'
+                    {unit === 'metric'
                       ? 'kg'
                       : 'lbs'}
                     )
@@ -1352,45 +1708,52 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
+                    min="1"
+                    step="0.1"
                     placeholder={
-                      unit ===
-                      'metric'
+                      unit === 'metric'
                         ? 'e.g. 80'
                         : 'e.g. 175'
                     }
-                    value={weightLbs}
+                    value={weight}
                     onChange={(event) =>
-                      setWeightLbs(
+                      setWeight(
                         event.target.value
                       )
                     }
                     className="h-12 text-base"
+                    inputMode="decimal"
                   />
                 </div>
               </div>
 
+              {/* Height */}
               <div>
                 <p className="text-xs text-muted-foreground mb-1 font-medium">
                   Height
                 </p>
 
-                {unit ===
-                'metric' ? (
+                {unit === 'metric' ? (
                   <Input
                     type="number"
+                    min="1"
+                    step="0.1"
                     placeholder="Height in cm (e.g. 178)"
-                    value={heightFt}
+                    value={heightCm}
                     onChange={(event) =>
-                      setHeightFt(
+                      setHeightCm(
                         event.target.value
                       )
                     }
                     className="h-12 text-base"
+                    inputMode="decimal"
                   />
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <Input
                       type="number"
+                      min="0"
+                      max="8"
                       placeholder="Feet (e.g. 5)"
                       value={heightFt}
                       onChange={(event) =>
@@ -1399,10 +1762,13 @@ export default function Onboarding() {
                         )
                       }
                       className="h-12 text-base"
+                      inputMode="numeric"
                     />
 
                     <Input
                       type="number"
+                      min="0"
+                      max="11"
                       placeholder="Inches (e.g. 10)"
                       value={heightIn}
                       onChange={(event) =>
@@ -1411,11 +1777,13 @@ export default function Onboarding() {
                         )
                       }
                       className="h-12 text-base"
+                      inputMode="numeric"
                     />
                   </div>
                 )}
               </div>
 
+              {/* Calisthenics goals */}
               {hasSkills && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">
@@ -1473,14 +1841,14 @@ export default function Onboarding() {
               )}
             </div>
 
-            <div className="flex gap-3 mb-8 mt-4">
+            <div className="flex gap-3 mb-8 mt-6">
               <Button
                 type="button"
                 variant="outline"
                 size="lg"
                 className="h-14"
                 onClick={() =>
-                  setStep(1)
+                  goToStep(1)
                 }
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1497,7 +1865,7 @@ export default function Onboarding() {
                       0)
                 }
                 onClick={() =>
-                  setStep(3)
+                  goToStep(3)
                 }
               >
                 Continue
@@ -1507,7 +1875,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* STEP 3 */}
+        {/* =========================================
+            STEP 3 — LEVEL / WEIGHT GOALS
+        ========================================= */}
         {step === 3 && (
           <motion.div
             key="step3"
@@ -1523,7 +1893,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6"
+            className="flex-1 flex flex-col px-6 overflow-y-auto"
           >
             {hasSkills && (
               <>
@@ -1533,9 +1903,7 @@ export default function Onboarding() {
 
                 <p className="text-muted-foreground mb-6">
                   Where are you in your journey,{' '}
-                  {firstName ||
-                    'Athlete'}
-                  ?
+                  {firstName || 'Athlete'}?
                 </p>
 
                 <div className="space-y-3 flex-1">
@@ -1557,8 +1925,7 @@ export default function Onboarding() {
                           }
                           className={cn(
                             'w-full p-4 rounded-2xl border-2 text-left transition-all',
-                            level ===
-                              value
+                            level === value
                               ? 'border-primary bg-primary/10'
                               : 'border-border bg-card hover:border-muted-foreground/30'
                           )}
@@ -1608,18 +1975,10 @@ export default function Onboarding() {
                                 placeholder
                               }
                               className="text-sm resize-none min-h-[72px] rounded-2xl border-primary/40 bg-primary/5 focus:border-primary leading-relaxed"
-                              onClick={(
-                                event
-                              ) =>
-                                event.stopPropagation()
-                              }
                             />
 
                             <p className="text-xs text-muted-foreground mt-1 pl-1">
-                              What skills &
-                              moves can
-                              you currently
-                              do?
+                              What skills & moves can you currently do?
                             </p>
                           </div>
                         )}
@@ -1695,9 +2054,7 @@ export default function Onboarding() {
                 <p className="text-muted-foreground mb-6">
                   What do you want to achieve
                   with weight training,{' '}
-                  {firstName ||
-                    'Athlete'}
-                  ?
+                  {firstName || 'Athlete'}?
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 flex-1">
@@ -1750,14 +2107,14 @@ export default function Onboarding() {
               </>
             )}
 
-            <div className="flex gap-3 mb-8 mt-4">
+            <div className="flex gap-3 mb-8 mt-6">
               <Button
                 type="button"
                 variant="outline"
                 size="lg"
                 className="h-14"
                 onClick={() =>
-                  setStep(2)
+                  goToStep(2)
                 }
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1769,7 +2126,7 @@ export default function Onboarding() {
                 className="flex-1 h-14 text-lg font-heading font-semibold"
                 disabled={!step3Valid}
                 onClick={() =>
-                  setStep(4)
+                  goToStep(4)
                 }
               >
                 Continue
@@ -1779,7 +2136,9 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* STEP 4 */}
+        {/* =========================================
+            STEP 4 — FINAL DETAILS
+        ========================================= */}
         {step === 4 && (
           <motion.div
             key="step4"
@@ -1795,7 +2154,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6"
+            className="flex-1 flex flex-col px-6 overflow-y-auto"
           >
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="w-5 h-5 text-primary" />
@@ -1803,12 +2162,10 @@ export default function Onboarding() {
               <h2 className="font-heading text-2xl font-bold">
                 {hasSkills
                   ? `Tell us your goals, ${
-                      firstName ||
-                      'Athlete'
+                      firstName || 'Athlete'
                     }`
                   : `Final details, ${
-                      firstName ||
-                      'Athlete'
+                      firstName || 'Athlete'
                     }`}
               </h2>
             </div>
@@ -1826,8 +2183,7 @@ export default function Onboarding() {
                     value={goalDescription}
                     onChange={(event) =>
                       setGoalDescription(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                     placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
@@ -1843,8 +2199,7 @@ export default function Onboarding() {
                       value={timeframe}
                       onChange={(event) =>
                         setTimeframe(
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                       placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
@@ -1926,7 +2281,7 @@ export default function Onboarding() {
               </div>
             </div>
 
-            <div className="flex gap-3 mb-8 mt-4">
+            <div className="flex gap-3 mb-8 mt-6">
               <Button
                 type="button"
                 variant="outline"
@@ -1934,7 +2289,7 @@ export default function Onboarding() {
                 className="h-14"
                 disabled={loading}
                 onClick={() =>
-                  setStep(3)
+                  goToStep(3)
                 }
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1944,14 +2299,17 @@ export default function Onboarding() {
                 type="button"
                 size="lg"
                 className="flex-1 h-14 text-lg font-heading font-semibold"
-                disabled={loading}
+                disabled={
+                  loading ||
+                  !step4Valid
+                }
                 onClick={
                   handleGenerate
                 }
               >
                 {loading ? (
                   <div className="flex items-center gap-3 w-full justify-center">
-                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin flex-shrink-0" />
 
                     <span className="truncate">
                       {loadingPhase ||
@@ -1977,7 +2335,13 @@ export default function Onboarding() {
                   <div
                     className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
                     style={{
-                      width: `${progress}%`,
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          progress
+                        )
+                      )}%`,
                     }}
                   />
                 </div>
@@ -1994,4 +2358,3 @@ export default function Onboarding() {
     </div>
   );
 }
-```
