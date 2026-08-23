@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { queryClientInstance } from '@/lib/query-client';
 import { Button } from '@/components/ui/button';
@@ -36,8 +36,6 @@ import {
   buildMicrocyclePrompt,
 } from '@/lib/trainingTypes';
 import { toast } from 'sonner';
-
-const TOTAL_STEPS = 5;
 
 const levels = [
   {
@@ -100,31 +98,8 @@ function SearchSelect({
     )
     .slice(0, 200);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const handleOutsideClick = (event) => {
-      if (!event.target.closest('[data-search-select]')) {
-        setOpen(false);
-        setSearch('');
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-
-    return () => {
-      document.removeEventListener(
-        'mousedown',
-        handleOutsideClick
-      );
-    };
-  }, [open]);
-
   return (
-    <div
-      className="relative"
-      data-search-select
-    >
+    <div className="relative">
       <button
         type="button"
         onClick={() => {
@@ -143,18 +118,13 @@ function SearchSelect({
           {value || placeholder}
         </span>
 
-        <span
-          className={cn(
-            'text-muted-foreground text-xs transition-transform',
-            open && 'rotate-180'
-          )}
-        >
+        <span className="text-muted-foreground text-xs">
           ▾
         </span>
       </button>
 
       {open && (
-        <div className="absolute z-[100] top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           <div className="p-2 border-b border-border">
             <input
               autoFocus
@@ -216,31 +186,8 @@ function CountrySelect({
       .includes(search.toLowerCase())
   );
 
-  useEffect(() => {
-    if (!open) return;
-
-    const handleOutsideClick = (event) => {
-      if (!event.target.closest('[data-country-select]')) {
-        setOpen(false);
-        setSearch('');
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-
-    return () => {
-      document.removeEventListener(
-        'mousedown',
-        handleOutsideClick
-      );
-    };
-  }, [open]);
-
   return (
-    <div
-      className="relative"
-      data-country-select
-    >
+    <div className="relative">
       <button
         type="button"
         onClick={() => {
@@ -259,18 +206,13 @@ function CountrySelect({
           {selected?.name || 'Select your country…'}
         </span>
 
-        <span
-          className={cn(
-            'text-muted-foreground text-xs transition-transform',
-            open && 'rotate-180'
-          )}
-        >
+        <span className="text-muted-foreground text-xs">
           ▾
         </span>
       </button>
 
       {open && (
-        <div className="absolute z-[100] top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
           <div className="p-2 border-b border-border">
             <input
               autoFocus
@@ -322,51 +264,21 @@ function getErrorMessage(error, fallback) {
     return error;
   }
 
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
   if (error.message) {
     return error.message;
   }
 
-  if (error.error) {
-    return getErrorMessage(error.error, fallback);
+  if (error.error?.message) {
+    return error.error.message;
   }
 
   try {
-    const parsed =
-      typeof error === 'string'
-        ? error
-        : JSON.stringify(error);
-
-    if (parsed && parsed !== '{}') {
-      return parsed;
-    }
+    return JSON.stringify(error);
   } catch {
-    // Ignore JSON serialization failures.
+    return fallback;
   }
-
-  return fallback;
 }
 
-/**
- * Supabase Edge Functions return:
- *
- * {
- *   data,
- *   error
- * }
- *
- * The Edge Function itself may also return:
- *
- * {
- *   success: false,
- *   error: ...
- * }
- *
- * This normalizes both cases into the actual AI result.
- */
 function normalizeFunctionResponse(response) {
   if (!response) {
     throw new Error(
@@ -392,58 +304,23 @@ function normalizeFunctionResponse(response) {
   }
 
   if (data.success === false) {
-    throw new Error(
-      getErrorMessage(
-        data.error || data.message,
-        'AI generation failed.'
-      )
-    );
-  }
+    let message =
+      data.error ||
+      data.message ||
+      'AI generation failed.';
 
-  if (data.error && data.success !== true) {
-    throw new Error(
-      getErrorMessage(
-        data.error,
-        'AI generation failed.'
-      )
-    );
+    if (typeof message === 'object') {
+      try {
+        message = JSON.stringify(message);
+      } catch {
+        message = 'AI generation failed.';
+      }
+    }
+
+    throw new Error(message);
   }
 
   return data.result ?? data;
-}
-
-function parsePositiveNumber(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    String(value).trim() === ''
-  ) {
-    return null;
-  }
-
-  const number = Number(value);
-
-  if (!Number.isFinite(number) || number <= 0) {
-    return null;
-  }
-
-  return number;
-}
-
-function parseInteger(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    String(value).trim() === ''
-  ) {
-    return null;
-  }
-
-  const number = Number.parseInt(value, 10);
-
-  return Number.isFinite(number)
-    ? number
-    : null;
 }
 
 export default function Onboarding() {
@@ -459,14 +336,20 @@ export default function Onboarding() {
   const [language, setLanguage] = useState('English');
   const [unit, setUnit] = useState('imperial');
 
-  const [trainingType, setTrainingType] = useState('');
+  const [trainingType, setTrainingType] =
+    useState('');
+
   const [level, setLevel] = useState('');
 
   const [goalDescription, setGoalDescription] =
     useState('');
 
-  const [timeframe, setTimeframe] = useState('');
-  const [equipment, setEquipment] = useState('');
+  const [timeframe, setTimeframe] =
+    useState('');
+
+  const [equipment, setEquipment] =
+    useState('');
+
   const [requirements, setRequirements] =
     useState('');
 
@@ -476,14 +359,15 @@ export default function Onboarding() {
     useState('');
 
   const progressTimer = useRef(null);
-  const generationStartedRef = useRef(false);
 
   const [age, setAge] = useState('');
-  const [weight, setWeight] = useState('');
+  const [weightLbs, setWeightLbs] =
+    useState('');
 
-  const [heightFt, setHeightFt] = useState('');
-  const [heightIn, setHeightIn] = useState('');
-  const [heightCm, setHeightCm] = useState('');
+  const [heightFt, setHeightFt] =
+    useState('');
+  const [heightIn, setHeightIn] =
+    useState('');
 
   const [fitnessGoals, setFitnessGoals] =
     useState([]);
@@ -491,7 +375,8 @@ export default function Onboarding() {
   const [currentSkills, setCurrentSkills] =
     useState('');
 
-  const [gender, setGender] = useState('');
+  const [gender, setGender] =
+    useState('');
 
   const [weightGoals, setWeightGoals] =
     useState([]);
@@ -505,27 +390,19 @@ export default function Onboarding() {
     trainingType === 'weights' ||
     trainingType === 'hybrid';
 
-  const handleCountryChange = useCallback(
-    (code) => {
-      setCountry(code);
+  const handleCountryChange = (code) => {
+    setCountry(code);
 
-      const defaults =
-        getCountryDefaults(code);
+    const defaults =
+      getCountryDefaults(code);
 
-      if (defaults) {
-        setLanguage(
-          defaults.language || 'English'
-        );
+    if (defaults) {
+      setLanguage(defaults.language);
+      setUnit(defaults.unit);
+    }
+  };
 
-        setUnit(
-          defaults.unit || 'imperial'
-        );
-      }
-    },
-    []
-  );
-
-  const toggleGoal = useCallback((value) => {
+  const toggleGoal = (value) => {
     setFitnessGoals((previous) =>
       previous.includes(value)
         ? previous.filter(
@@ -533,59 +410,35 @@ export default function Onboarding() {
           )
         : [...previous, value]
     );
-  }, []);
+  };
 
-  const toggleWeightGoal = useCallback(
-    (value) => {
-      setWeightGoals((previous) =>
-        previous.includes(value)
-          ? previous.filter(
-              (goal) => goal !== value
-            )
-          : [...previous, value]
-      );
-    },
-    []
-  );
+  const toggleWeightGoal = (value) => {
+    setWeightGoals((previous) =>
+      previous.includes(value)
+        ? previous.filter(
+            (goal) => goal !== value
+          )
+        : [...previous, value]
+    );
+  };
 
-  /**
-   * Keep the browser back button synchronized
-   * with onboarding steps without creating a
-   * new history entry every render.
+  /*
+   * Browser history handling.
+   *
+   * We deliberately do not push a new history entry
+   * from a useEffect every time step changes.
+   *
+   * This avoids duplicate history entries and
+   * back-button loops.
    */
   useEffect(() => {
-    const initialState = window.history.state;
+    const handlePopState = () => {
+      if (loading) {
+        return;
+      }
 
-    if (
-      !initialState ||
-      initialState.onboardingFlow !== true
-    ) {
-      window.history.replaceState(
-        {
-          ...initialState,
-          onboardingFlow: true,
-          onboardingStep: 0,
-        },
-        ''
-      );
-    }
-
-    const handlePopState = (event) => {
-      const browserStep =
-        Number.isInteger(
-          event.state?.onboardingStep
-        )
-          ? event.state.onboardingStep
-          : Math.max(0, step - 1);
-
-      setStep(
-        Math.max(
-          0,
-          Math.min(
-            TOTAL_STEPS - 1,
-            browserStep
-          )
-        )
+      setStep((current) =>
+        Math.max(0, current - 1)
       );
     };
 
@@ -600,88 +453,55 @@ export default function Onboarding() {
         handlePopState
       );
     };
-  }, [step]);
+  }, [loading]);
 
   useEffect(() => {
     return () => {
       if (progressTimer.current) {
-        clearInterval(
-          progressTimer.current
-        );
+        clearInterval(progressTimer.current);
       }
     };
   }, []);
 
-  const goToStep = useCallback(
-    (nextStep) => {
-      if (loading) return;
+  const goToStep = (nextStep) => {
+    if (loading) return;
 
-      const safeStep = Math.max(
-        0,
-        Math.min(
-          TOTAL_STEPS - 1,
-          nextStep
-        )
-      );
+    window.history.pushState(
+      {
+        onboardingStep: nextStep,
+      },
+      ''
+    );
 
-      if (safeStep === step) return;
+    setStep(nextStep);
+  };
 
-      window.history.pushState(
-        {
-          onboardingFlow: true,
-          onboardingStep: safeStep,
-        },
-        ''
-      );
+  const runProgressTo = (target) => {
+    if (progressTimer.current) {
+      clearInterval(progressTimer.current);
+    }
 
-      setStep(safeStep);
+    progressTimer.current =
+      setInterval(() => {
+        setProgress((current) => {
+          if (current >= target - 0.5) {
+            return current;
+          }
 
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      });
-    },
-    [loading, step]
-  );
+          const remaining =
+            target - current;
 
-  const runProgressTo = useCallback(
-    (target) => {
-      if (progressTimer.current) {
-        clearInterval(
-          progressTimer.current
-        );
-      }
-
-      progressTimer.current =
-        setInterval(() => {
-          setProgress((current) => {
-            if (current >= target) {
-              if (progressTimer.current) {
-                clearInterval(
-                  progressTimer.current
-                );
-              }
-
-              return target;
-            }
-
-            const remaining =
-              target - current;
-
-            const increment = Math.max(
-              remaining * 0.04,
-              0.1
-            );
-
-            return Math.min(
-              current + increment,
-              target
-            );
-          });
-        }, 400);
-    },
-    []
-  );
+          return Math.min(
+            current +
+              Math.max(
+                remaining * 0.04,
+                0.1
+              ),
+            target - 0.5
+          );
+        });
+      }, 400);
+  };
 
   const step3Valid = hasSkills
     ? Boolean(
@@ -696,80 +516,15 @@ export default function Onboarding() {
     (!hasSkills ||
       goalDescription.trim().length >= 10);
 
-  /**
-   * Generate the complete program.
-   *
-   * Important fixes:
-   * - Prevents double-click generation.
-   * - Correctly handles Supabase invoke errors.
-   * - Correctly handles metric weight.
-   * - Correctly handles metric height.
-   * - Validates every generated phase.
-   * - Does not save an incomplete program.
-   * - Clears progress timers on success/failure.
-   */
   const handleGenerate = async () => {
-    if (
-      loading ||
-      generationStartedRef.current
-    ) {
-      return;
-    }
+    console.log(
+      '[ONBOARDING] Build My Program clicked'
+    );
 
-    if (!country) {
-      toast.error(
-        'Please select your country.'
+    if (loading) {
+      console.log(
+        '[ONBOARDING] Generation already running'
       );
-      goToStep(0);
-      return;
-    }
-
-    if (!trainingType) {
-      toast.error(
-        'Please select your training type.'
-      );
-      goToStep(1);
-      return;
-    }
-
-    if (!gender) {
-      toast.error(
-        'Please select your gender.'
-      );
-      goToStep(2);
-      return;
-    }
-
-    if (
-      hasSkills &&
-      fitnessGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one goal.'
-      );
-      goToStep(2);
-      return;
-    }
-
-    if (
-      hasSkills &&
-      !level
-    ) {
-      toast.error(
-        'Please select your training level.'
-      );
-      goToStep(3);
-      return;
-    }
-
-    if (
-      hasWeightGoals &&
-      weightGoals.length === 0
-    ) {
-      toast.error(
-        'Please select at least one weight-training goal.'
-      );
-      goToStep(3);
       return;
     }
 
@@ -790,7 +545,6 @@ export default function Onboarding() {
       return;
     }
 
-    generationStartedRef.current = true;
     setLoading(true);
     setProgress(5);
     setLoadingPhase(
@@ -803,6 +557,10 @@ export default function Onboarding() {
         language,
         unit,
       });
+
+      console.log(
+        '[ONBOARDING] Getting authenticated user...'
+      );
 
       const {
         data: { user },
@@ -819,76 +577,45 @@ export default function Onboarding() {
         );
       }
 
-      /*
-       * ------------------------------------------
-       * NORMALIZE BODY MEASUREMENTS
-       * ------------------------------------------
-       */
-
-      const parsedAge =
-        parseInteger(age);
-
-      const parsedWeight =
-        parsePositiveNumber(weight);
-
-      let weightKg = null;
-      let weightLbs = null;
-
-      if (
-        parsedWeight !== null
-      ) {
-        if (unit === 'metric') {
-          weightKg = parsedWeight;
-          weightLbs =
-            parsedWeight * 2.2046226218;
-        } else {
-          weightLbs = parsedWeight;
-          weightKg =
-            parsedWeight / 2.2046226218;
-        }
-      }
-
-      let heightInches = null;
-      let normalizedHeightCm = null;
-
-      if (unit === 'imperial') {
-        const feet =
-          parsePositiveNumber(heightFt) ||
-          0;
-
-        const inches =
-          parsePositiveNumber(heightIn) ||
-          0;
-
-        const totalInches =
-          feet * 12 + inches;
-
-        if (totalInches > 0) {
-          heightInches = totalInches;
-          normalizedHeightCm =
-            totalInches * 2.54;
-        }
-      } else {
-        const cm =
-          parsePositiveNumber(heightCm);
-
-        if (cm !== null) {
-          normalizedHeightCm = cm;
-          heightInches =
-            cm / 2.54;
-        }
-      }
-
-      /*
-       * ------------------------------------------
-       * SAVE USER PROFILE
-       * ------------------------------------------
-       */
-
-      setLoadingPhase(
-        'Saving your profile…'
+      console.log(
+        '[ONBOARDING] Authenticated user:',
+        user.id
       );
 
+      /*
+       * Parse body measurements.
+       */
+      const parsedWeight =
+        parseFloat(weightLbs);
+
+      const parsedAge =
+        parseInt(age, 10);
+
+      const heightInches =
+        unit === 'imperial'
+          ? (parseInt(heightFt, 10) || 0) *
+              12 +
+            (parseInt(heightIn, 10) || 0)
+          : null;
+
+      const heightCm =
+        unit === 'metric'
+          ? parseFloat(heightFt) || null
+          : null;
+
+      /*
+       * NOTE:
+       *
+       * weight_lbs is only populated when the user
+       * selected imperial.
+       *
+       * height_inches is only populated for imperial.
+       * height_cm is only populated for metric.
+       *
+       * If your profiles table does not yet have
+       * weight_kg, leave that field out and keep
+       * the metric weight in your existing column.
+       */
       const profileData = {
         id: user.id,
 
@@ -927,28 +654,29 @@ export default function Onboarding() {
         current_skills:
           currentSkills.trim(),
 
-        age: parsedAge,
+        age:
+          Number.isFinite(parsedAge)
+            ? parsedAge
+            : null,
 
         gender:
           gender || null,
 
-        /*
-         * Store the database's existing
-         * weight_lbs field in pounds regardless
-         * of the user's selected display unit.
-         */
         weight_lbs:
-          weightLbs,
+          unit === 'imperial' &&
+          Number.isFinite(parsedWeight)
+            ? parsedWeight
+            : null,
 
-        /*
-         * Store height in both representations
-         * so the profile remains normalized.
-         */
         height_inches:
-          heightInches,
+          unit === 'imperial'
+            ? heightInches || null
+            : null,
 
         height_cm:
-          normalizedHeightCm,
+          unit === 'metric'
+            ? heightCm
+            : null,
 
         country,
         language,
@@ -957,95 +685,67 @@ export default function Onboarding() {
         onboarded: true,
       };
 
+      setLoadingPhase(
+        'Saving your profile…'
+      );
+
+      console.log(
+        '[ONBOARDING] Saving profile...'
+      );
+
       const {
         error: profileError,
       } = await supabase
         .from('profiles')
-        .upsert(profileData, {
-          onConflict: 'id',
-        });
+        .upsert(profileData);
 
       if (profileError) {
+        console.error(
+          '[ONBOARDING] Profile error:',
+          profileError
+        );
+
         throw profileError;
       }
 
-      /*
-       * ------------------------------------------
-       * PROMPT DATA
-       * ------------------------------------------
-       *
-       * Keep the user's selected display values
-       * for the AI prompt, while also supplying
-       * normalized values where useful.
-       */
+      console.log(
+        '[ONBOARDING] Profile saved'
+      );
 
       const promptData = {
         gender,
         level,
-
-        age:
-          parsedAge !== null
-            ? String(parsedAge)
-            : '',
-
-        weightLbs:
-          weightLbs !== null
-            ? String(
-                Number(weightLbs.toFixed(2))
-              )
-            : '',
-
-        weightKg:
-          weightKg !== null
-            ? String(
-                Number(weightKg.toFixed(2))
-              )
-            : '',
-
+        age,
+        weightLbs,
         heightFt,
         heightIn,
-        heightCm,
-
-        normalizedHeightCm:
-          normalizedHeightCm !== null
-            ? String(
-                Number(
-                  normalizedHeightCm.toFixed(1)
-                )
-              )
-            : '',
-
         unit,
 
-        currentSkills:
-          currentSkills.trim(),
+        currentSkills,
+        goalDescription,
+        timeframe,
 
-        goalDescription:
-          goalDescription.trim(),
-
-        timeframe:
-          timeframe.trim(),
-
-        equipment:
-          equipment.trim(),
-
-        requirements:
-          requirements.trim(),
+        equipment,
+        requirements,
 
         fitnessGoals,
         weightGoals,
       };
 
       /*
-       * ------------------------------------------
+       * ==================================================
        * PHASE 1: PROGRAM STRUCTURE
-       * ------------------------------------------
+       * ==================================================
        */
 
       runProgressTo(25);
 
       setLoadingPhase(
         'Designing your program structure…'
+      );
+
+      console.log(
+        '[ONBOARDING] Calling workout-generation: structure'
       );
 
       const structurePrompt =
@@ -1060,10 +760,13 @@ export default function Onboarding() {
           {
             body: {
               type: 'structure',
-              prompt: structurePrompt,
+
+              prompt:
+                structurePrompt,
 
               schema: {
                 type: 'object',
+
                 additionalProperties: false,
 
                 properties: {
@@ -1096,10 +799,20 @@ export default function Onboarding() {
           }
         );
 
+      console.log(
+        '[ONBOARDING] Structure response:',
+        structureResponse
+      );
+
       const structureResult =
         normalizeFunctionResponse(
           structureResponse
         );
+
+      console.log(
+        '[ONBOARDING] Structure result:',
+        structureResult
+      );
 
       if (
         !structureResult ||
@@ -1125,28 +838,9 @@ export default function Onboarding() {
       }
 
       /*
-       * Validate that every phase has enough
-       * information to generate a microcycle.
-       */
-      const invalidMesoIndex =
-        mesocycles.findIndex(
-          (meso) =>
-            !meso ||
-            typeof meso !== 'object'
-        );
-
-      if (invalidMesoIndex !== -1) {
-        throw new Error(
-          `AI returned an invalid training phase at phase ${
-            invalidMesoIndex + 1
-          }. Please try again.`
-        );
-      }
-
-      /*
-       * ------------------------------------------
+       * ==================================================
        * PHASE 2: MICROCYCLES
-       * ------------------------------------------
+       * ==================================================
        */
 
       const allMicrocycles = [];
@@ -1167,12 +861,23 @@ export default function Onboarding() {
 
         runProgressTo(target);
 
+        /*
+         * IMPORTANT:
+         *
+         * Keep the phase name in a separate variable.
+         * This avoids nested template literals and prevents
+         * the exact esbuild syntax error that occurred before.
+         */
         const phaseName =
           meso?.name ||
           `training phase ${index + 1}`;
 
         setLoadingPhase(
           `Building ${phaseName}…`
+        );
+
+        console.log(
+          `[ONBOARDING] Calling workout-generation: microcycle ${index + 1}/${mesocycles.length}`
         );
 
         const microPrompt =
@@ -1189,10 +894,13 @@ export default function Onboarding() {
             {
               body: {
                 type: 'microcycle',
-                prompt: microPrompt,
+
+                prompt:
+                  microPrompt,
 
                 schema: {
                   type: 'object',
+
                   additionalProperties: false,
 
                   properties: {
@@ -1208,6 +916,11 @@ export default function Onboarding() {
               },
             }
           );
+
+        console.log(
+          `[ONBOARDING] Microcycle ${index + 1} response:`,
+          microResponse
+        );
 
         const microResult =
           normalizeFunctionResponse(
@@ -1234,28 +947,32 @@ export default function Onboarding() {
         );
       }
 
-      if (!allMicrocycles.length) {
-        throw new Error(
-          'No workouts were generated. Please try again.'
-        );
-      }
+      console.log(
+        '[ONBOARDING] All microcycles generated:',
+        allMicrocycles
+      );
 
       /*
-       * ------------------------------------------
+       * ==================================================
        * SAVE COMPLETE PROGRAM
-       * ------------------------------------------
+       * ==================================================
        */
 
       if (progressTimer.current) {
         clearInterval(
           progressTimer.current
         );
+        progressTimer.current = null;
       }
 
       setProgress(95);
 
       setLoadingPhase(
         'Saving your personalized program…'
+      );
+
+      console.log(
+        '[ONBOARDING] Saving workout program...'
       );
 
       const programPayload = {
@@ -1292,26 +1009,24 @@ export default function Onboarding() {
         .single();
 
       if (programError) {
+        console.error(
+          '[ONBOARDING] Program database error:',
+          programError
+        );
+
         throw programError;
       }
 
-      if (!savedProgram) {
-        throw new Error(
-          'The program was generated but could not be saved.'
-        );
-      }
+      console.log(
+        '[ONBOARDING] Program saved:',
+        savedProgram
+      );
 
       /*
-       * ------------------------------------------
+       * ==================================================
        * COMPLETE
-       * ------------------------------------------
+       * ==================================================
        */
-
-      if (progressTimer.current) {
-        clearInterval(
-          progressTimer.current
-        );
-      }
 
       setProgress(100);
 
@@ -1323,6 +1038,10 @@ export default function Onboarding() {
 
       toast.success(
         'Your personalized program is ready!'
+      );
+
+      console.log(
+        '[ONBOARDING] PROGRAM GENERATION COMPLETE'
       );
 
       setTimeout(() => {
@@ -1343,7 +1062,6 @@ export default function Onboarding() {
         progressTimer.current = null;
       }
 
-      generationStartedRef.current = false;
       setLoading(false);
       setProgress(0);
       setLoadingPhase('');
@@ -1355,17 +1073,19 @@ export default function Onboarding() {
         );
 
       toast.error(message);
+
+      console.error(
+        '[ONBOARDING] User-facing error:',
+        message
+      );
     }
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col safe-top safe-bottom">
-      {/* Progress */}
       <div className="px-6 pt-4 pb-4">
         <div className="flex items-center gap-2 mb-2">
-          {Array.from({
-            length: TOTAL_STEPS,
-          }).map((_, index) => (
+          {[0, 1, 2, 3, 4].map((index) => (
             <div
               key={index}
               className={cn(
@@ -1380,9 +1100,10 @@ export default function Onboarding() {
       </div>
 
       <AnimatePresence mode="wait">
-        {/* =========================================
-            STEP 0 — WELCOME
-        ========================================= */}
+        {/* ==================================================
+            STEP 0
+            ================================================== */}
+
         {step === 0 && (
           <motion.div
             key="welcome"
@@ -1398,7 +1119,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6 overflow-y-auto"
+            className="flex-1 flex flex-col px-6"
           >
             <h1 className="font-heading text-4xl font-bold mb-2 tracking-tight">
               Welcome to{' '}
@@ -1433,7 +1154,6 @@ export default function Onboarding() {
                     )
                   }
                   className="h-14 text-lg rounded-2xl"
-                  autoComplete="given-name"
                 />
               </div>
 
@@ -1451,7 +1171,6 @@ export default function Onboarding() {
                     )
                   }
                   className="h-14 text-lg rounded-2xl"
-                  autoComplete="family-name"
                 />
               </div>
 
@@ -1526,7 +1245,7 @@ export default function Onboarding() {
             <Button
               type="button"
               size="lg"
-              className="w-full h-14 text-lg font-heading font-semibold mb-8 mt-6"
+              className="w-full h-14 text-lg font-heading font-semibold mb-8 mt-4"
               disabled={
                 !firstName.trim() ||
                 !country
@@ -1541,9 +1260,10 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* =========================================
-            STEP 1 — TRAINING TYPE
-        ========================================= */}
+        {/* ==================================================
+            STEP 1
+            ================================================== */}
+
         {step === 1 && (
           <motion.div
             key="training-type"
@@ -1559,7 +1279,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6 overflow-y-auto"
+            className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
               Choose Your Path
@@ -1577,7 +1297,7 @@ export default function Onboarding() {
               />
             </div>
 
-            <div className="flex gap-3 mb-8 mt-6">
+            <div className="flex gap-3 mb-8 mt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -1606,9 +1326,10 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* =========================================
-            STEP 2 — BODY STATS
-        ========================================= */}
+        {/* ==================================================
+            STEP 2
+            ================================================== */}
+
         {step === 2 && (
           <motion.div
             key="bodystats"
@@ -1624,7 +1345,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6 overflow-y-auto"
+            className="flex-1 flex flex-col px-6"
           >
             <h2 className="font-heading text-2xl font-bold mb-1">
               About You
@@ -1636,7 +1357,6 @@ export default function Onboarding() {
             </p>
 
             <div className="space-y-4 flex-1">
-              {/* Gender */}
               <div>
                 <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">
                   Gender
@@ -1674,7 +1394,6 @@ export default function Onboarding() {
                 </div>
               </div>
 
-              {/* Age + Weight */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 font-medium">
@@ -1683,8 +1402,8 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
-                    min="1"
-                    max="120"
+                    min="13"
+                    max="100"
                     placeholder="e.g. 24"
                     value={age}
                     onChange={(event) =>
@@ -1693,14 +1412,14 @@ export default function Onboarding() {
                       )
                     }
                     className="h-12 text-base"
-                    inputMode="numeric"
                   />
                 </div>
 
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 font-medium">
                     Weight (
-                    {unit === 'metric'
+                    {unit ===
+                    'metric'
                       ? 'kg'
                       : 'lbs'}
                     )
@@ -1708,45 +1427,44 @@ export default function Onboarding() {
 
                   <Input
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.1"
                     placeholder={
-                      unit === 'metric'
+                      unit ===
+                      'metric'
                         ? 'e.g. 80'
                         : 'e.g. 175'
                     }
-                    value={weight}
+                    value={weightLbs}
                     onChange={(event) =>
-                      setWeight(
+                      setWeightLbs(
                         event.target.value
                       )
                     }
                     className="h-12 text-base"
-                    inputMode="decimal"
                   />
                 </div>
               </div>
 
-              {/* Height */}
               <div>
                 <p className="text-xs text-muted-foreground mb-1 font-medium">
                   Height
                 </p>
 
-                {unit === 'metric' ? (
+                {unit ===
+                'metric' ? (
                   <Input
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.1"
                     placeholder="Height in cm (e.g. 178)"
-                    value={heightCm}
+                    value={heightFt}
                     onChange={(event) =>
-                      setHeightCm(
+                      setHeightFt(
                         event.target.value
                       )
                     }
                     className="h-12 text-base"
-                    inputMode="decimal"
                   />
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -1762,7 +1480,6 @@ export default function Onboarding() {
                         )
                       }
                       className="h-12 text-base"
-                      inputMode="numeric"
                     />
 
                     <Input
@@ -1777,13 +1494,11 @@ export default function Onboarding() {
                         )
                       }
                       className="h-12 text-base"
-                      inputMode="numeric"
                     />
                   </div>
                 )}
               </div>
 
-              {/* Calisthenics goals */}
               {hasSkills && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wider">
@@ -1841,7 +1556,7 @@ export default function Onboarding() {
               )}
             </div>
 
-            <div className="flex gap-3 mb-8 mt-6">
+            <div className="flex gap-3 mb-8 mt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -1875,9 +1590,10 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* =========================================
-            STEP 3 — LEVEL / WEIGHT GOALS
-        ========================================= */}
+        {/* ==================================================
+            STEP 3
+            ================================================== */}
+
         {step === 3 && (
           <motion.div
             key="step3"
@@ -1893,7 +1609,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6 overflow-y-auto"
+            className="flex-1 flex flex-col px-6"
           >
             {hasSkills && (
               <>
@@ -1903,7 +1619,9 @@ export default function Onboarding() {
 
                 <p className="text-muted-foreground mb-6">
                   Where are you in your journey,{' '}
-                  {firstName || 'Athlete'}?
+                  {firstName ||
+                    'Athlete'}
+                  ?
                 </p>
 
                 <div className="space-y-3 flex-1">
@@ -1925,7 +1643,8 @@ export default function Onboarding() {
                           }
                           className={cn(
                             'w-full p-4 rounded-2xl border-2 text-left transition-all',
-                            level === value
+                            level ===
+                              value
                               ? 'border-primary bg-primary/10'
                               : 'border-border bg-card hover:border-muted-foreground/30'
                           )}
@@ -1978,7 +1697,10 @@ export default function Onboarding() {
                             />
 
                             <p className="text-xs text-muted-foreground mt-1 pl-1">
-                              What skills & moves can you currently do?
+                              What skills &
+                              moves can
+                              you currently
+                              do?
                             </p>
                           </div>
                         )}
@@ -2054,7 +1776,9 @@ export default function Onboarding() {
                 <p className="text-muted-foreground mb-6">
                   What do you want to achieve
                   with weight training,{' '}
-                  {firstName || 'Athlete'}?
+                  {firstName ||
+                    'Athlete'}
+                  ?
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 flex-1">
@@ -2107,7 +1831,7 @@ export default function Onboarding() {
               </>
             )}
 
-            <div className="flex gap-3 mb-8 mt-6">
+            <div className="flex gap-3 mb-8 mt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -2136,9 +1860,10 @@ export default function Onboarding() {
           </motion.div>
         )}
 
-        {/* =========================================
-            STEP 4 — FINAL DETAILS
-        ========================================= */}
+        {/* ==================================================
+            STEP 4
+            ================================================== */}
+
         {step === 4 && (
           <motion.div
             key="step4"
@@ -2154,7 +1879,7 @@ export default function Onboarding() {
               opacity: 0,
               x: -50,
             }}
-            className="flex-1 flex flex-col px-6 overflow-y-auto"
+            className="flex-1 flex flex-col px-6"
           >
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="w-5 h-5 text-primary" />
@@ -2162,10 +1887,12 @@ export default function Onboarding() {
               <h2 className="font-heading text-2xl font-bold">
                 {hasSkills
                   ? `Tell us your goals, ${
-                      firstName || 'Athlete'
+                      firstName ||
+                      'Athlete'
                     }`
                   : `Final details, ${
-                      firstName || 'Athlete'
+                      firstName ||
+                      'Athlete'
                     }`}
               </h2>
             </div>
@@ -2183,7 +1910,8 @@ export default function Onboarding() {
                     value={goalDescription}
                     onChange={(event) =>
                       setGoalDescription(
-                        event.target.value
+                        event.target
+                          .value
                       )
                     }
                     placeholder='e.g. "I want to learn the muscle up and build a strong back. I can currently do 10 pull-ups and 15 dips. I want to improve my strength while taking care of my shoulders."'
@@ -2199,7 +1927,8 @@ export default function Onboarding() {
                       value={timeframe}
                       onChange={(event) =>
                         setTimeframe(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                       placeholder='e.g. "Muscle up in 3 months, handstand in 6 months."'
@@ -2281,7 +2010,7 @@ export default function Onboarding() {
               </div>
             </div>
 
-            <div className="flex gap-3 mb-8 mt-6">
+            <div className="flex gap-3 mb-8 mt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -2309,7 +2038,7 @@ export default function Onboarding() {
               >
                 {loading ? (
                   <div className="flex items-center gap-3 w-full justify-center">
-                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
 
                     <span className="truncate">
                       {loadingPhase ||
@@ -2335,13 +2064,7 @@ export default function Onboarding() {
                   <div
                     className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
                     style={{
-                      width: `${Math.min(
-                        100,
-                        Math.max(
-                          0,
-                          progress
-                        )
-                      )}%`,
+                      width: `${progress}%`,
                     }}
                   />
                 </div>
